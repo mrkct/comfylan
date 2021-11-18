@@ -11,7 +11,10 @@ pub enum TokenKind<'a> {
     Star,
     Slash,
     OpenParenthesis,
-    CloseParethesis
+    CloseParethesis,
+    Identifier(&'a str),
+    KeywordFn,
+    KeywordType
 }
 
 #[derive(Debug, PartialEq)]
@@ -97,7 +100,9 @@ impl<'a> Iterator for Lexer<'a> {
             static ref SLASH: Regex = Regex::new(r#"^/"#).unwrap();
             static ref OPEN_PARENTHESIS: Regex = Regex::new(r#"^\("#).unwrap();
             static ref CLOSE_PARENTHESIS: Regex = Regex::new(r#"^\)"#).unwrap();
-            
+            static ref KEYWORD_FN: Regex = Regex::new(r#"^fn(\s|$)"#).unwrap();
+            static ref KEYWORD_TYPE: Regex = Regex::new(r#"^type(\s|$)"#).unwrap();
+            static ref IDENTIFIER: Regex = Regex::new(r#"^([a-zA-Z][a-zA-Z0-9]*)(\s|$)"#).unwrap();
 
             static ref TOKENS_REGEXEPS: Vec<(&'static Regex, fn(&str) -> TokenKind)> = vec![
                 (&FLOATING_POINT, |fp| { TokenKind::FloatingPoint(fp.parse::<f64>().unwrap())}),
@@ -109,11 +114,14 @@ impl<'a> Iterator for Lexer<'a> {
                 (&SLASH, |_| { TokenKind::Slash }),
                 (&OPEN_PARENTHESIS, |_| { TokenKind::OpenParenthesis }),
                 (&CLOSE_PARENTHESIS, |_| { TokenKind::CloseParethesis }),
+                (&KEYWORD_FN, |_| { TokenKind::KeywordFn }),
+                (&KEYWORD_TYPE, |_| { TokenKind::KeywordType }),
+                (&IDENTIFIER, |i| { TokenKind::Identifier(i.trim_end())})
             ];
         };
 
         for (regex, converter) in TOKENS_REGEXEPS.iter() {
-            if let Some(captures) = regex.captures(self.remaining_string) {                
+            if let Some(captures) = regex.captures(self.remaining_string) {                                
                 let string_capture = captures.get(0).unwrap().as_str();
                 let token = Token {kind: converter(string_capture), line: self.line, column: self.column};
                 self.column += string_capture.len() as u64;
@@ -156,11 +164,34 @@ mod tests {
     }
 
     #[test]
+    fn tokens_between_whitespace() {
+        let lexer = Lexer::new("1\n2\t\t3\n  4 ");
+        let tokens = lexer.collect::<Vec<_>>();
+        assert_eq!(tokens, vec![
+            Ok(Token { kind: TokenKind::Integer(1), line: 0, column: 0}),
+            Ok(Token { kind: TokenKind::Integer(2), line: 1, column: 0}),
+            Ok(Token { kind: TokenKind::Integer(3), line: 1, column: 3}),
+            Ok(Token { kind: TokenKind::Integer(4), line: 2, column: 2})
+        ]);
+    }
+
+    #[test]
+    fn keywords_and_identifiers() {
+        let lexer = Lexer::new("fn fni type typee");
+        let tokens = lexer.map(|token| token.unwrap().kind).collect::<Vec<_>>();
+        assert_eq!(tokens, vec![
+            TokenKind::KeywordFn,
+            TokenKind::Identifier("fni"),
+            TokenKind::KeywordType,
+            TokenKind::Identifier("typee")
+        ]);
+    }
+
+    #[test]
     fn unexpected_token() {
         let mut lexer = Lexer::new(r#"1 £"#);
 
         assert_eq!(lexer.next(), Some(Ok(Token {kind: TokenKind::Integer(1), line: 0, column: 0}),));
         assert_eq!(lexer.next(), Some(Err(LexerError {error: ErrorType::UnrecognizedToken("£"), line: 0, column: 2}),));
-        
     }
 }
