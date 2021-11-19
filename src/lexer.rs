@@ -45,9 +45,9 @@ pub enum TokenKind<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Token<'a> {
-    kind: TokenKind<'a>,
-    line: u64,
-    column: u64,
+    pub kind: TokenKind<'a>,
+    pub line: u64,
+    pub column: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,9 +57,9 @@ pub enum ErrorType<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct LexerError<'a> {
-    error: ErrorType<'a>,
-    line: u64,
-    column: u64,
+    pub error: ErrorType<'a>,
+    pub line: u64,
+    pub column: u64,
 }
 
 pub struct Lexer<'a> {
