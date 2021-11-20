@@ -91,21 +91,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_value(&mut self) -> Option<Box<ASTNode<'a>>> {
-        if let Some(token) = try_consume!(self.tokens, TokenKind::Integer(_)) {
-            return Some(Box::new(ASTNode::Value(token)));
+        macro_rules! try_match_single_token_to_value {
+            ($p:pat) => {
+                if let Some(token) = try_consume!(self.tokens, $p) {
+                    return Some(Box::new(ASTNode::Value(token)));
+                }
+            };
         }
 
-        if let Some(token) = try_consume!(self.tokens, TokenKind::String(_)) {
-            return Some(Box::new(ASTNode::Value(token)));
-        }
-
-        if let Some(token) = try_consume!(self.tokens, TokenKind::FloatingPoint(_)) {
-            return Some(Box::new(ASTNode::Value(token)));
-        }
-
-        if let Some(token) = try_consume!(self.tokens, TokenKind::Identifier(_)) {
-            return Some(Box::new(ASTNode::Value(token)));
-        }
+        try_match_single_token_to_value!(TokenKind::Integer(_));
+        try_match_single_token_to_value!(TokenKind::String(_));
+        try_match_single_token_to_value!(TokenKind::FloatingPoint(_));
+        try_match_single_token_to_value!(TokenKind::Identifier(_));
+        try_match_single_token_to_value!(TokenKind::KeywordTrue);
+        try_match_single_token_to_value!(TokenKind::KeywordFalse);
 
         None
     }
