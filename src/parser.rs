@@ -21,7 +21,7 @@ IfExpr := if ( <Expr> ) <Block> (else <Block>)
 WhileExpr := while ( <Expr> ) <Block>
 ForExpr := for (<Statement>*) (<Expr>) (<Statement>*) <Block>
 Expr := P1Expr
-P1Expr := P2Expr ( (and|or) P2Expr)*
+P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
 P3Expr := P4Expr ( (+|-) P4Expr )*
 P4Expr := <Value> ( (*|/) <Value> )*
@@ -144,7 +144,10 @@ impl<'a> Parser<'a> {
     );
     parse_expression_level!(
         parse_p1expr,
-        TokenKind::KeywordAnd | TokenKind::KeywordOr,
+        TokenKind::KeywordAnd
+            | TokenKind::KeywordOr
+            | TokenKind::KeywordXor
+            | TokenKind::KeywordNor,
         parse_p2expr
     );
 }
