@@ -25,7 +25,7 @@ P1Expr := P2Expr ( (and|or) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
 P3Expr := P4Expr ( (+|-) P4Expr )*
 P4Expr := <Value> ( (*|/) <Value> )*
-Value := integer | floating_point | string | identifier | ( <Expr> )
+Value := integer | floating_point | string | identifier | KeywordTrue | KeywordFalse | ( <Expr> )
 */
 
 struct Parser<'a> {
@@ -106,7 +106,20 @@ impl<'a> Parser<'a> {
         try_match_single_token_to_value!(TokenKind::KeywordTrue);
         try_match_single_token_to_value!(TokenKind::KeywordFalse);
 
+        if let Some(node) = rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+            let node = self.parse_expr()?;
+            try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+            Some(node)
+        }) {
+            return Some(node);
+        }
+
         None
+    }
+
+    fn parse_expr(&mut self) -> Option<Box<ASTNode<'a>>> {
+        self.parse_p1expr()
     }
 
     parse_expression_level!(
@@ -324,6 +337,33 @@ mod tests {
                     val!(&tok!(TokenKind::Integer(4))),
                     &tok!(TokenKind::EqualEqual),
                     val!(&tok!(TokenKind::Integer(5)))
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn parenthesis_precedence() {
+        let tokens = [
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::Star),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::Integer(2)),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::Integer(3)),
+            tok!(TokenKind::CloseRoundBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(binop!(
+                val!(&tok!(TokenKind::Integer(1))),
+                &tok!(TokenKind::Star),
+                binop!(
+                    val!(&tok!(TokenKind::Integer(2))),
+                    &tok!(TokenKind::Plus),
+                    val!(&tok!(TokenKind::Integer(3)))
                 )
             ))
         );
