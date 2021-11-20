@@ -39,6 +39,8 @@ pub enum TokenKind<'a> {
     KeywordAnd,
     KeywordOr,
     KeywordNot,
+    KeywordXor,
+    KeywordNor,
     KeywordTrue,
     KeywordFalse,
 }
@@ -162,6 +164,8 @@ impl<'a> Iterator for Lexer<'a> {
             static ref KEYWORD_AND: Regex = Regex::new(r#"^and(\s|$)"#).unwrap();
             static ref KEYWORD_OR: Regex = Regex::new(r#"^or(\s|$)"#).unwrap();
             static ref KEYWORD_NOT: Regex = Regex::new(r#"^not(\s|$)"#).unwrap();
+            static ref KEYWORD_XOR: Regex = Regex::new(r#"^xor(\s|$)"#).unwrap();
+            static ref KEYWORD_NOR: Regex = Regex::new(r#"^nor(\s|$)"#).unwrap();
             static ref KEYWORD_TRUE: Regex = Regex::new(r#"^true(\s|$)"#).unwrap();
             static ref KEYWORD_FALSE: Regex = Regex::new(r#"^false(\s|$)"#).unwrap();
             static ref IDENTIFIER: Regex = Regex::new(r#"^([a-zA-Z][a-zA-Z0-9]*)(\s|$)"#).unwrap();
@@ -207,6 +211,8 @@ impl<'a> Iterator for Lexer<'a> {
                 (&KEYWORD_AND, |_| { TokenKind::KeywordAnd }),
                 (&KEYWORD_OR, |_| { TokenKind::KeywordOr }),
                 (&KEYWORD_NOT, |_| { TokenKind::KeywordNot }),
+                (&KEYWORD_XOR, |_| { TokenKind::KeywordXor }),
+                (&KEYWORD_NOR, |_| { TokenKind::KeywordNor }),
                 (&KEYWORD_TRUE, |_| { TokenKind::KeywordTrue }),
                 (&KEYWORD_FALSE, |_| { TokenKind::KeywordFalse }),
                 (&IDENTIFIER, |i| { TokenKind::Identifier(i.trim_end()) })
