@@ -120,6 +120,21 @@ impl<'a> Parser<'a> {
         TokenKind::Plus | TokenKind::Minus,
         parse_p4expr
     );
+    parse_expression_level!(
+        parse_p2expr,
+        TokenKind::EqualEqual
+            | TokenKind::ExclamationMarkEqual
+            | TokenKind::LessThanEqual
+            | TokenKind::GreaterThanEqual
+            | TokenKind::LessThan
+            | TokenKind::GreaterThan,
+        parse_p3expr
+    );
+    parse_expression_level!(
+        parse_p1expr,
+        TokenKind::KeywordAnd | TokenKind::KeywordOr,
+        parse_p2expr
+    );
 }
 
 #[cfg(test)]
@@ -224,6 +239,92 @@ mod tests {
                     val!(&tok!(TokenKind::Integer(2))),
                     &tok!(TokenKind::Star),
                     val!(&tok!(TokenKind::Integer(3)))
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_p2expr() {
+        let tokens = [
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::Integer(2)),
+            tok!(TokenKind::Star),
+            tok!(TokenKind::Integer(3)),
+            tok!(TokenKind::EqualEqual),
+            tok!(TokenKind::Integer(4)),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::Integer(3)),
+            tok!(TokenKind::LessThanEqual),
+            tok!(TokenKind::Integer(10)),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p2expr(),
+            Some(binop!(
+                binop!(
+                    binop!(
+                        val!(&tok!(TokenKind::Integer(1))),
+                        &tok!(TokenKind::Plus),
+                        binop!(
+                            val!(&tok!(TokenKind::Integer(2))),
+                            &tok!(TokenKind::Star),
+                            val!(&tok!(TokenKind::Integer(3)))
+                        )
+                    ),
+                    &tok!(TokenKind::EqualEqual),
+                    binop!(
+                        val!(&tok!(TokenKind::Integer(4))),
+                        &tok!(TokenKind::Plus),
+                        val!(&tok!(TokenKind::Integer(3)))
+                    )
+                ),
+                &tok!(TokenKind::LessThanEqual),
+                val!(&tok!(TokenKind::Integer(10)))
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_p1expr() {
+        let tokens = [
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::LessThan),
+            tok!(TokenKind::Integer(2)),
+            tok!(TokenKind::KeywordAnd),
+            tok!(TokenKind::Integer(3)),
+            tok!(TokenKind::LessThan),
+            tok!(TokenKind::Integer(99)),
+            tok!(TokenKind::KeywordOr),
+            tok!(TokenKind::Integer(4)),
+            tok!(TokenKind::EqualEqual),
+            tok!(TokenKind::Integer(5)),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p1expr(),
+            Some(binop!(
+                binop!(
+                    binop!(
+                        val!(&tok!(TokenKind::Integer(1))),
+                        &tok!(TokenKind::LessThan),
+                        val!(&tok!(TokenKind::Integer(2)))
+                    ),
+                    &tok!(TokenKind::KeywordAnd),
+                    binop!(
+                        val!(&tok!(TokenKind::Integer(3))),
+                        &tok!(TokenKind::LessThan),
+                        val!(&tok!(TokenKind::Integer(99)))
+                    )
+                ),
+                &tok!(TokenKind::KeywordOr),
+                binop!(
+                    val!(&tok!(TokenKind::Integer(4))),
+                    &tok!(TokenKind::EqualEqual),
+                    val!(&tok!(TokenKind::Integer(5)))
                 )
             ))
         );
