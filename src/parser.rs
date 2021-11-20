@@ -25,10 +25,8 @@ P1Expr := P2Expr ( (and|or) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
 P3Expr := P4Expr ( (*|/) P4Expr )*
 P4Expr := <Value> ( (+|-) <Value> )*
-Value := integer | floating_point | string | identifier
+Value := integer | floating_point | string | identifier | ( <Expr> )
 */
-
-type TokenStream<'a> = Vec<Token<'a>>;
 
 struct Parser<'a> {
     tokens: &'a [Token<'a>],
@@ -50,37 +48,22 @@ macro_rules! try_consume {
     }};
 }
 
+macro_rules! rewinding_if_none {
+    ($self:expr, $e:expr) => {{
+        let saved_tokens = $self.tokens;
+        match $e {
+            Some(t) => Some(t),
+            None => {
+                $self.tokens = saved_tokens;
+                None
+            }
+        }
+    }};
+}
+
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token<'a>]) -> Parser<'a> {
         Parser { tokens }
-    }
-
-    fn repeat_zero_or_more(
-        &mut self,
-        parse: fn(&mut Self) -> Option<ASTNode<'a>>,
-    ) -> Vec<ASTNode<'a>> {
-        let mut collected_nodes = vec![];
-        while let Some(node) = parse(self) {
-            collected_nodes.push(node);
-        }
-        collected_nodes
-    }
-
-    fn repeat_once_or_more(
-        &mut self,
-        parse: fn(&mut Self) -> Option<ASTNode<'a>>,
-    ) -> Option<Vec<ASTNode<'a>>> {
-        let first_node = parse(self);
-
-        if let None = first_node {
-            return None;
-        }
-
-        let mut collected_nodes = vec![first_node.unwrap()];
-        while let Some(node) = parse(self) {
-            collected_nodes.push(node);
-        }
-        Some(collected_nodes)
     }
 
     fn parse_value(&mut self) -> Option<ASTNode<'a>> {
@@ -102,75 +85,107 @@ impl<'a> Parser<'a> {
 
         None
     }
+
+    fn parse_p4expr(&mut self) -> Option<Box<ASTNode<'a>>> {
+        let first_value = self.parse_value()?;
+
+        let mut parse_operator_value = || -> Option<(&Token, ASTNode)> {
+            rewinding_if_none!(self, {
+                let operator = try_consume!(self.tokens, TokenKind::Plus | TokenKind::Minus)?;
+                if let Some(value) = self.parse_value() {
+                    return Some((operator, value));
+                }
+                None
+            })
+        };
+
+        let mut left = Box::new(first_value);
+        while let Some((operator, right)) = parse_operator_value() {
+            left = Box::new(ASTNode::BinaryOperation(left, operator, Box::new(right)));
+        }
+        Some(left)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    macro_rules! tok {
+        ($p:expr) => {
+            Token {
+                kind: $p,
+                line: 0,
+                column: 0,
+            }
+        };
+    }
+
+    macro_rules! binop {
+        ($left:expr, $op:expr, $right:expr) => {
+            Box::new(ASTNode::BinaryOperation($left, $op, $right))
+        };
+    }
+
+    macro_rules! val {
+        ($val:expr) => {
+            Box::new(ASTNode::Value($val))
+        };
+    }
+
     #[test]
     fn try_parse_value() {
         let tokens = [
-            Token {
-                kind: TokenKind::Integer(1),
-                line: 0,
-                column: 0,
-            },
-            Token {
-                kind: TokenKind::FloatingPoint(3.14),
-                line: 0,
-                column: 0,
-            },
-            Token {
-                kind: TokenKind::String("Hello"),
-                line: 0,
-                column: 0,
-            },
-            Token {
-                kind: TokenKind::Identifier("count"),
-                line: 0,
-                column: 0,
-            },
-            Token {
-                kind: TokenKind::Ampersand,
-                line: 0,
-                column: 0,
-            },
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::FloatingPoint(3.14)),
+            tok!(TokenKind::String("Hello")),
+            tok!(TokenKind::Identifier("count")),
+            tok!(TokenKind::Ampersand),
         ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.parse_value(),
-            Some(ASTNode::Value(&Token {
-                kind: TokenKind::Integer(1),
-                line: 0,
-                column: 0
-            }))
+            Some(ASTNode::Value(&tok!(TokenKind::Integer(1))))
         );
         assert_eq!(
             parser.parse_value(),
-            Some(ASTNode::Value(&Token {
-                kind: TokenKind::FloatingPoint(3.14),
-                line: 0,
-                column: 0
-            }))
+            Some(ASTNode::Value(&tok!(TokenKind::FloatingPoint(3.14))))
         );
         assert_eq!(
             parser.parse_value(),
-            Some(ASTNode::Value(&Token {
-                kind: TokenKind::String("Hello"),
-                line: 0,
-                column: 0
-            }))
+            Some(ASTNode::Value(&tok!(TokenKind::String("Hello"))))
         );
         assert_eq!(
             parser.parse_value(),
-            Some(ASTNode::Value(&Token {
-                kind: TokenKind::Identifier("count"),
-                line: 0,
-                column: 0
-            }))
+            Some(ASTNode::Value(&tok!(TokenKind::Identifier("count"))))
         );
         assert_eq!(parser.parse_value(), None);
+    }
+
+    #[test]
+    fn parse_p4expr() {
+        let tokens = [
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::Integer(2)),
+            tok!(TokenKind::Minus),
+            tok!(TokenKind::Integer(3)),
+            tok!(TokenKind::Star),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p4expr(),
+            Some(binop!(
+                binop!(
+                    val!(&tok!(TokenKind::Integer(1))),
+                    &tok!(TokenKind::Plus),
+                    val!(&tok!(TokenKind::Integer(2)))
+                ),
+                &tok!(TokenKind::Minus),
+                val!(&tok!(TokenKind::Integer(3)))
+            ))
+        );
     }
 }
