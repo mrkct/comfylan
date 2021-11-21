@@ -9,6 +9,12 @@ pub enum ASTNode<'a> {
     VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     Assignment(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
     If(Box<ASTNode<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
+    While(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
+    For(
+        Vec<Box<ASTNode<'a>>>,
+        Box<ASTNode<'a>>,
+        Vec<Box<ASTNode<'a>>>,
+    ),
     Block(Vec<Box<ASTNode<'a>>>),
 }
 
@@ -207,6 +213,17 @@ impl<'a> Parser<'a> {
                     )))
                 }
             }
+        })
+    }
+
+    fn parse_while(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordWhile)?;
+            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+            let condition = self.parse_expr()?;
+            try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+            let loop_block = self.parse_block()?;
+            Some(Box::new(ASTNode::While(condition, loop_block)))
         })
     }
 
@@ -598,6 +615,27 @@ mod tests {
                 val!(&tok!(TokenKind::KeywordTrue)),
                 Box::new(ASTNode::Block(vec![])),
                 None
+            )))
+        );
+    }
+
+    #[test]
+    fn parse_while() {
+        let tokens = [
+            tok!(TokenKind::KeywordWhile),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::KeywordTrue),
+            tok!(TokenKind::CloseRoundBracket),
+            tok!(TokenKind::OpenCurlyBracket),
+            tok!(TokenKind::CloseCurlyBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_while(),
+            Some(Box::new(ASTNode::While(
+                val!(&tok!(TokenKind::KeywordTrue)),
+                Box::new(ASTNode::Block(vec![]))
             )))
         );
     }
