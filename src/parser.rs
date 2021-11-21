@@ -8,6 +8,7 @@ pub enum ASTNode<'a> {
     LetDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     Assignment(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
+    Block(Vec<Box<ASTNode<'a>>>),
 }
 
 /*
@@ -53,16 +54,18 @@ macro_rules! try_consume {
 }
 
 macro_rules! rewinding_if_none {
-    ($self:expr, $e:expr) => {{
-        let saved_tokens = $self.tokens;
-        match $e {
-            Some(t) => Some(t),
-            None => {
-                $self.tokens = saved_tokens;
-                None
+    ($self:expr, $e:block) => {
+        (|| {
+            let saved_tokens = $self.tokens;
+            match { $e } {
+                Some(t) => Some(t),
+                None => {
+                    $self.tokens = saved_tokens;
+                    None
+                }
             }
-        }
-    }};
+        })()
+    };
 }
 
 macro_rules! parse_expression_level {
@@ -182,6 +185,38 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::Equal)?;
             let rvalue = self.parse_expr()?;
             Some(Box::new(ASTNode::Assignment(lvalue, rvalue)))
+        })
+    }
+
+    fn parse_statement(&mut self) -> Option<Box<ASTNode<'a>>> {
+        let possible_statements = [
+            Self::parse_let_declaration,
+            Self::parse_var_declaration,
+            Self::parse_assignment,
+        ];
+
+        for parsing_method in possible_statements {
+            if let Some(node) = rewinding_if_none!(self, {
+                let node = parsing_method(self)?;
+                try_consume!(self.tokens, TokenKind::SemiColon)?;
+
+                Some(node)
+            }) {
+                return Some(node);
+            }
+        }
+        None
+    }
+
+    fn parse_block(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::OpenCurlyBracket)?;
+            let mut statements = vec![];
+            while let Some(s) = self.parse_statement() {
+                statements.push(s);
+            }
+            try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
+            Some(Box::new(ASTNode::Block(statements)))
         })
     }
 }
@@ -477,6 +512,61 @@ mod tests {
                     val!(&tok!(TokenKind::Integer(1)))
                 )
             )))
+        );
+    }
+
+    #[test]
+    fn parse_statement() {
+        let tokens = [
+            tok!(TokenKind::Identifier("x")),
+            tok!(TokenKind::Equal),
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::SemiColon),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_statement(),
+            Some(Box::new(ASTNode::Assignment(
+                val!(&tok!(TokenKind::Identifier("x"))),
+                val!(&tok!(TokenKind::Integer(1)))
+            )))
+        );
+    }
+
+    #[test]
+    fn parse_block() {
+        let tokens = [
+            // {
+            tok!(TokenKind::OpenCurlyBracket),
+            // x = 1;
+            tok!(TokenKind::Identifier("x")),
+            tok!(TokenKind::Equal),
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::SemiColon),
+            // let y = 2;
+            tok!(TokenKind::KeywordLet),
+            tok!(TokenKind::Identifier("y")),
+            tok!(TokenKind::Equal),
+            tok!(TokenKind::Integer(2)),
+            tok!(TokenKind::SemiColon),
+            // }
+            tok!(TokenKind::CloseCurlyBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_block(),
+            Some(Box::new(ASTNode::Block(vec![
+                Box::new(ASTNode::Assignment(
+                    val!(&tok!(TokenKind::Identifier("x"))),
+                    val!(&tok!(TokenKind::Integer(1)))
+                )),
+                Box::new(ASTNode::LetDeclaration(
+                    &tok!(TokenKind::Identifier("y")),
+                    val!(&tok!(TokenKind::Integer(2)))
+                ))
+            ])))
         );
     }
 }
