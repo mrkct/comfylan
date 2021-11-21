@@ -34,6 +34,7 @@ pub enum TokenKind<'a> {
     KeywordVar,
     KeywordLet,
     KeywordIf,
+    KeywordElse,
     KeywordFor,
     KeywordWhile,
     KeywordAnd,
@@ -159,6 +160,7 @@ impl<'a> Iterator for Lexer<'a> {
             static ref KEYWORD_VAR: Regex = Regex::new(r#"^var(\s|$)"#).unwrap();
             static ref KEYWORD_LET: Regex = Regex::new(r#"^let(\s|$)"#).unwrap();
             static ref KEYWORD_IF: Regex = Regex::new(r#"^if(\s|$)"#).unwrap();
+            static ref KEYWORD_ELSE: Regex = Regex::new(r#"^else(\s|$)"#).unwrap();
             static ref KEYWORD_FOR: Regex = Regex::new(r#"^for(\s|$)"#).unwrap();
             static ref KEYWORD_WHILE: Regex = Regex::new(r#"^while(\s|$)"#).unwrap();
             static ref KEYWORD_AND: Regex = Regex::new(r#"^and(\s|$)"#).unwrap();
@@ -206,6 +208,7 @@ impl<'a> Iterator for Lexer<'a> {
                 (&KEYWORD_VAR, |_| { TokenKind::KeywordVar }),
                 (&KEYWORD_LET, |_| { TokenKind::KeywordLet }),
                 (&KEYWORD_IF, |_| { TokenKind::KeywordIf }),
+                (&KEYWORD_ELSE, |_| { TokenKind::KeywordElse }),
                 (&KEYWORD_FOR, |_| { TokenKind::KeywordFor }),
                 (&KEYWORD_WHILE, |_| { TokenKind::KeywordWhile }),
                 (&KEYWORD_AND, |_| { TokenKind::KeywordAnd }),
