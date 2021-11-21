@@ -8,6 +8,7 @@ pub enum ASTNode<'a> {
     LetDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     Assignment(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
+    If(Box<ASTNode<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
     Block(Vec<Box<ASTNode<'a>>>),
 }
 
@@ -185,6 +186,27 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::Equal)?;
             let rvalue = self.parse_expr()?;
             Some(Box::new(ASTNode::Assignment(lvalue, rvalue)))
+        })
+    }
+
+    fn parse_if(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordIf)?;
+            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+            let condition = self.parse_expr()?;
+            try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+            let true_branch = self.parse_block()?;
+            match try_consume!(self.tokens, TokenKind::KeywordElse) {
+                None => Some(Box::new(ASTNode::If(condition, true_branch, None))),
+                _ => {
+                    let false_branch = self.parse_block()?;
+                    Some(Box::new(ASTNode::If(
+                        condition,
+                        true_branch,
+                        Some(false_branch),
+                    )))
+                }
+            }
         })
     }
 
@@ -530,6 +552,52 @@ mod tests {
             Some(Box::new(ASTNode::Assignment(
                 val!(&tok!(TokenKind::Identifier("x"))),
                 val!(&tok!(TokenKind::Integer(1)))
+            )))
+        );
+    }
+
+    #[test]
+    fn parse_if_else() {
+        let tokens = [
+            tok!(TokenKind::KeywordIf),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::KeywordTrue),
+            tok!(TokenKind::CloseRoundBracket),
+            tok!(TokenKind::OpenCurlyBracket),
+            tok!(TokenKind::CloseCurlyBracket),
+            tok!(TokenKind::KeywordElse),
+            tok!(TokenKind::OpenCurlyBracket),
+            tok!(TokenKind::CloseCurlyBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_if(),
+            Some(Box::new(ASTNode::If(
+                val!(&tok!(TokenKind::KeywordTrue)),
+                Box::new(ASTNode::Block(vec![])),
+                Some(Box::new(ASTNode::Block(vec![])))
+            )))
+        );
+    }
+
+    fn parse_if_no_else() {
+        let tokens = [
+            tok!(TokenKind::KeywordIf),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::KeywordTrue),
+            tok!(TokenKind::CloseRoundBracket),
+            tok!(TokenKind::OpenCurlyBracket),
+            tok!(TokenKind::CloseCurlyBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_if(),
+            Some(Box::new(ASTNode::If(
+                val!(&tok!(TokenKind::KeywordTrue)),
+                Box::new(ASTNode::Block(vec![])),
+                None
             )))
         );
     }
