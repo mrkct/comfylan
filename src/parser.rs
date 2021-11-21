@@ -5,6 +5,8 @@ pub enum ASTNode<'a> {
     Value(&'a Token<'a>),
     UnaryOperation(&'a Token<'a>, Box<ASTNode<'a>>),
     BinaryOperation(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
+    LetDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
+    VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
 }
 
 /*
@@ -25,7 +27,8 @@ P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
 P3Expr := P4Expr ( (+|-) P4Expr )*
 P4Expr := <Value> ( (*|/) <Value> )*
-Value := integer | floating_point | string | identifier | KeywordTrue | KeywordFalse | ( <Expr> )
+Value := '-'? (<Constant> | '(' <Expr> ')' | identifier
+Constant := integer | floating_point | string | KeywordTrue | KeywordFalse
 */
 
 struct Parser<'a> {
@@ -150,6 +153,26 @@ impl<'a> Parser<'a> {
             | TokenKind::KeywordNor,
         parse_p2expr
     );
+
+    fn parse_let_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordLet)?;
+            let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            try_consume!(self.tokens, TokenKind::Equal)?;
+            let expr = self.parse_expr()?;
+            Some(Box::new(ASTNode::LetDeclaration(name, expr)))
+        })
+    }
+
+    fn parse_var_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordVar)?;
+            let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            try_consume!(self.tokens, TokenKind::Equal)?;
+            let expr = self.parse_expr()?;
+            Some(Box::new(ASTNode::VarDeclaration(name, expr)))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -369,6 +392,56 @@ mod tests {
                     val!(&tok!(TokenKind::Integer(3)))
                 )
             ))
+        );
+    }
+
+    #[test]
+    fn parse_let_declaration() {
+        let tokens = [
+            tok!(TokenKind::KeywordLet),
+            tok!(TokenKind::Identifier("myval")),
+            tok!(TokenKind::Equal),
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::Integer(1)),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_let_declaration(),
+            Some(Box::new(ASTNode::LetDeclaration(
+                &tok!(TokenKind::Identifier("myval")),
+                binop!(
+                    val!(&tok!(TokenKind::Integer(1))),
+                    &tok!(TokenKind::Plus),
+                    val!(&tok!(TokenKind::Integer(1)))
+                )
+            )))
+        );
+    }
+
+    #[test]
+    fn parse_var_declaration() {
+        let tokens = [
+            tok!(TokenKind::KeywordVar),
+            tok!(TokenKind::Identifier("myval")),
+            tok!(TokenKind::Equal),
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::Integer(1)),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_var_declaration(),
+            Some(Box::new(ASTNode::VarDeclaration(
+                &tok!(TokenKind::Identifier("myval")),
+                binop!(
+                    val!(&tok!(TokenKind::Integer(1))),
+                    &tok!(TokenKind::Plus),
+                    val!(&tok!(TokenKind::Integer(1)))
+                )
+            )))
         );
     }
 }
