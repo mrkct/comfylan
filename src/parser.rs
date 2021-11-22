@@ -15,7 +15,18 @@ pub enum ASTNode<'a> {
         Box<ASTNode<'a>>,
         Vec<Box<ASTNode<'a>>>,
     ),
+    FunctionDeclaration(
+        &'a Token<'a>,
+        Vec<(&'a Token<'a>, Type<'a>)>,
+        Type<'a>,
+        Box<ASTNode<'a>>,
+    ),
     Block(Vec<Box<ASTNode<'a>>>),
+}
+
+#[derive(Debug, PartialEq)]
+enum Type<'a> {
+    Base(&'a Token<'a>), // TODO: More complex types
 }
 
 /*
@@ -30,7 +41,7 @@ VarDeclaration := var identifier (: <Type>) = <Expr>
 Assignment := identifier = <Expr>
 IfExpr := if ( <Expr> ) <Block> (else <Block>)
 WhileExpr := while ( <Expr> ) <Block>
-ForExpr := for (<Statement>*) (<Expr>) (<Statement>*) <Block>
+--cut-- ForExpr := for (<Statement>*) (<Expr>) (<Statement>*) <Block>
 Expr := P1Expr
 P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
@@ -227,6 +238,52 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_type(&mut self) -> Option<Type<'a>> {
+        rewinding_if_none!(self, {
+            let t = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            // TODO: Implement more complex types
+            Some(Type::Base(t))
+        })
+    }
+
+    fn parse_function_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
+        let parse_name_colon_type = |me: &mut Self| {
+            rewinding_if_none!(me, {
+                let arg_name = try_consume!(me.tokens, TokenKind::Identifier(_))?;
+                try_consume!(me.tokens, TokenKind::Colon)?;
+                let arg_type = me.parse_type()?;
+                Some((arg_name, arg_type))
+            })
+        };
+
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordFn)?;
+            let function_name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+
+            let mut collected_parameters = vec![];
+            if let Some((arg_name, arg_type)) = parse_name_colon_type(self) {
+                collected_parameters.push((arg_name, arg_type));
+                while let Some((arg_name, arg_type)) = rewinding_if_none!(self, {
+                    try_consume!(self.tokens, TokenKind::Comma)?;
+                    parse_name_colon_type(self)
+                }) {
+                    collected_parameters.push((arg_name, arg_type))
+                }
+            }
+            try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+            try_consume!(self.tokens, TokenKind::MinusGreaterThan)?;
+            let return_type = self.parse_type()?;
+            let function_code = self.parse_block()?;
+            Some(Box::new(ASTNode::FunctionDeclaration(
+                function_name,
+                collected_parameters,
+                return_type,
+                function_code,
+            )))
+        })
+    }
+
     fn parse_statement(&mut self) -> Option<Box<ASTNode<'a>>> {
         let possible_statements = [
             Self::parse_let_declaration,
@@ -238,7 +295,6 @@ impl<'a> Parser<'a> {
             if let Some(node) = rewinding_if_none!(self, {
                 let node = parsing_method(self)?;
                 try_consume!(self.tokens, TokenKind::SemiColon)?;
-
                 Some(node)
             }) {
                 return Some(node);
@@ -673,6 +729,55 @@ mod tests {
                     val!(&tok!(TokenKind::Integer(2)))
                 ))
             ])))
+        );
+    }
+
+    #[test]
+    fn parse_function_declaration() {
+        let tokens = [
+            tok!(TokenKind::KeywordFn),
+            tok!(TokenKind::Identifier("myfunc")),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::Identifier("arg1")),
+            tok!(TokenKind::Colon),
+            tok!(TokenKind::Identifier("u32")),
+            tok!(TokenKind::Comma),
+            tok!(TokenKind::Identifier("arg2")),
+            tok!(TokenKind::Colon),
+            tok!(TokenKind::Identifier("bool")),
+            tok!(TokenKind::Comma),
+            tok!(TokenKind::Identifier("arg3")),
+            tok!(TokenKind::Colon),
+            tok!(TokenKind::Identifier("str")),
+            tok!(TokenKind::CloseRoundBracket),
+            tok!(TokenKind::MinusGreaterThan),
+            tok!(TokenKind::Identifier("ReturnType")),
+            tok!(TokenKind::OpenCurlyBracket),
+            tok!(TokenKind::CloseCurlyBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_function_declaration(),
+            Some(Box::new(ASTNode::FunctionDeclaration(
+                &tok!(TokenKind::Identifier("myfunc")),
+                vec![
+                    (
+                        &tok!(TokenKind::Identifier("arg1")),
+                        Type::Base(&tok!(TokenKind::Identifier("u32")))
+                    ),
+                    (
+                        &tok!(TokenKind::Identifier("arg2")),
+                        Type::Base(&tok!(TokenKind::Identifier("bool")))
+                    ),
+                    (
+                        &tok!(TokenKind::Identifier("arg3")),
+                        Type::Base(&tok!(TokenKind::Identifier("str")))
+                    ),
+                ],
+                Type::Base(&tok!(TokenKind::Identifier("ReturnType"))),
+                Box::new(ASTNode::Block(vec![]))
+            )))
         );
     }
 }
