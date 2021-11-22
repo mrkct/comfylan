@@ -20,6 +20,8 @@ pub enum TokenKind<'a> {
     Ampersand,
     Pipe,
     Colon,
+    Comma,
+    MinusGreaterThan,
     SemiColon,
     PipeGreaterThan,
     OpenRoundBracket,
@@ -137,6 +139,7 @@ impl<'a> Iterator for Lexer<'a> {
             static ref GREATER_THAN_EQUAL: Regex = Regex::new(r#"^>="#).unwrap();
             static ref EXCLAMATION_MARK_EQUAL: Regex = Regex::new(r#"^!="#).unwrap();
             static ref PIPE_GREATER_THAN: Regex = Regex::new(r#"^\|>"#).unwrap();
+            static ref MINUS_GREATER_THAN: Regex = Regex::new(r#"->"#).unwrap();
             static ref LESS_THAN: Regex = Regex::new(r#"^<"#).unwrap();
             static ref GREATER_THAN: Regex = Regex::new(r#"^>"#).unwrap();
             static ref EQUAL: Regex = Regex::new(r#"^="#).unwrap();
@@ -186,6 +189,7 @@ impl<'a> Iterator for Lexer<'a> {
                     TokenKind::ExclamationMarkEqual
                 }),
                 (&PIPE_GREATER_THAN, |_| { TokenKind::PipeGreaterThan }),
+                (&MINUS_GREATER_THAN, |_| { TokenKind::MinusGreaterThan }),
                 (&LESS_THAN, |_| { TokenKind::LessThan }),
                 (&GREATER_THAN, |_| { TokenKind::GreaterThan }),
                 (&EQUAL, |_| { TokenKind::Equal }),
@@ -195,6 +199,7 @@ impl<'a> Iterator for Lexer<'a> {
                 (&MINUS, |_| { TokenKind::Minus }),
                 (&STAR, |_| { TokenKind::Star }),
                 (&SLASH, |_| { TokenKind::Slash }),
+                (&COMMA, |_| { TokenKind::Comma }),
                 (&COLON, |_| { TokenKind::Colon }),
                 (&SEMICOLON, |_| { TokenKind::SemiColon }),
                 (&OPEN_ROUND_BRACKET, |_| { TokenKind::OpenRoundBracket }),
