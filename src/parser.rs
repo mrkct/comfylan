@@ -289,6 +289,8 @@ impl<'a> Parser<'a> {
             Self::parse_let_declaration,
             Self::parse_var_declaration,
             Self::parse_assignment,
+            Self::parse_while,
+            Self::parse_function_declaration,
         ];
 
         for parsing_method in possible_statements {
