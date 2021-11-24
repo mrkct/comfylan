@@ -1,7 +1,15 @@
 use crate::lexer::{Token, TokenKind};
 
+pub fn parse<'a>(tokens: &'a [Token<'a>]) -> Result<Box<ASTNode<'a>>, &'static str> {
+    match Parser::new(tokens).parse_program() {
+        Some(ast) => Ok(ast),
+        None => Err("Parsing Error: I don't have any other info for you"),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ASTNode<'a> {
+    Root(Vec<Box<ASTNode<'a>>>),
     Value(&'a Token<'a>),
     UnaryOperation(&'a Token<'a>, Box<ASTNode<'a>>),
     BinaryOperation(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
@@ -25,7 +33,7 @@ pub enum ASTNode<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-enum Type<'a> {
+pub enum Type<'a> {
     Base(&'a Token<'a>), // TODO: More complex types
 }
 
@@ -113,6 +121,15 @@ macro_rules! parse_expression_level {
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token<'a>]) -> Parser<'a> {
         Parser { tokens }
+    }
+
+    pub fn parse_program(&mut self) -> Option<Box<ASTNode<'a>>> {
+        let mut collected_functions = vec![];
+        while let Some(function) = self.parse_function_declaration() {
+            collected_functions.push(function);
+        }
+
+        Some(Box::new(ASTNode::Root(collected_functions)))
     }
 
     fn parse_value(&mut self) -> Option<Box<ASTNode<'a>>> {
