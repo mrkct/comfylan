@@ -59,8 +59,9 @@ Expr := P1Expr
 P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
 P3Expr := P4Expr ( (+|-) P4Expr )*
-P4Expr := <Value> ( (*|/) <Value> )*
-Value := '-'? (<Constant> | '(' <Expr> ')' | identifier
+P4Expr := <P5Expr> ( (*|/) <P5Expr> )*
+P5Expr := - <Value> | <Value>[<Expr>] | <Value>( <Expr> (, <Expr>)* )
+Value := <Constant> | '(' <Expr> ')' | identifier
 Constant := integer | floating_point | string | KeywordTrue | KeywordFalse
 */
 
@@ -170,14 +171,12 @@ impl<'a> Parser<'a> {
     }
 
     parse_expression_level!(
-        parse_p4expr,
-        TokenKind::Star | TokenKind::Slash,
-        parse_value
-    );
-    parse_expression_level!(
-        parse_p3expr,
-        TokenKind::Plus | TokenKind::Minus,
-        parse_p4expr
+        parse_p1expr,
+        TokenKind::KeywordAnd
+            | TokenKind::KeywordOr
+            | TokenKind::KeywordXor
+            | TokenKind::KeywordNor,
+        parse_p2expr
     );
     parse_expression_level!(
         parse_p2expr,
@@ -190,13 +189,23 @@ impl<'a> Parser<'a> {
         parse_p3expr
     );
     parse_expression_level!(
-        parse_p1expr,
-        TokenKind::KeywordAnd
-            | TokenKind::KeywordOr
-            | TokenKind::KeywordXor
-            | TokenKind::KeywordNor,
-        parse_p2expr
+        parse_p3expr,
+        TokenKind::Plus | TokenKind::Minus,
+        parse_p4expr
     );
+    parse_expression_level!(
+        parse_p4expr,
+        TokenKind::Star | TokenKind::Slash,
+        parse_p5expr
+    );
+    fn parse_p5expr(&mut self) -> Option<Box<ASTNode<'a>>> {
+        let operator_or_none = try_consume!(self.tokens, TokenKind::Minus);
+        let value = self.parse_value()?;
+        match operator_or_none {
+            Some(operator) => Some(Box::new(ASTNode::UnaryOperation(operator, value))),
+            None => Some(value),
+        }
+    }
 
     fn parse_let_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
         rewinding_if_none!(self, {
@@ -440,6 +449,27 @@ mod tests {
             Some(val!(&tok!(TokenKind::Identifier("count"))))
         );
         assert_eq!(parser.parse_value(), None);
+    }
+
+    #[test]
+    fn parse_p5expr() {
+        let tokens = [tok!(TokenKind::Integer(1))];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p5expr(),
+            Some(val!(&tok!(TokenKind::Integer(1))))
+        );
+
+        let tokens = [tok!(TokenKind::Minus), tok!(TokenKind::Integer(1))];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p5expr(),
+            Some(Box::new(ASTNode::UnaryOperation(
+                &tok!(TokenKind::Minus),
+                val!(&tok!(TokenKind::Integer(1)))
+            )))
+        );
     }
 
     #[test]
