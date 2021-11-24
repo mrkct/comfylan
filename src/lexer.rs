@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 
-pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token<'a>>, Vec<LexerError<'a>>> {
+pub fn tokenize(source: &str) -> Result<Vec<Token>, Vec<LexerError>> {
     let mut collected_tokens = vec![];
     let mut collected_errors = vec![];
     for token_or_error in Lexer::new(source) {
@@ -19,7 +19,7 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token<'a>>, Vec<LexerError<'a
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TokenKind<'a> {
     Integer(i64),
     FloatingPoint(f64),
@@ -64,6 +64,7 @@ pub enum TokenKind<'a> {
     KeywordNor,
     KeywordTrue,
     KeywordFalse,
+    KeywordReturn,
 }
 
 #[derive(Debug, PartialEq)]
@@ -149,113 +150,129 @@ impl<'a> Iterator for Lexer<'a> {
         }
 
         lazy_static! {
-            static ref FLOATING_POINT: Regex = Regex::new(r#"^\d*\.\d+"#).unwrap();
-            static ref INTEGER: Regex = Regex::new(r#"^\d+"#).unwrap();
-            static ref STRING: Regex = Regex::new(r#"^"(\\"|[^"])*""#).unwrap();
-            static ref EQUAL_EQUAL: Regex = Regex::new(r#"^=="#).unwrap();
-            static ref LESS_THAN_EQUAL: Regex = Regex::new(r#"^<="#).unwrap();
-            static ref GREATER_THAN_EQUAL: Regex = Regex::new(r#"^>="#).unwrap();
-            static ref EXCLAMATION_MARK_EQUAL: Regex = Regex::new(r#"^!="#).unwrap();
-            static ref PIPE_GREATER_THAN: Regex = Regex::new(r#"^\|>"#).unwrap();
-            static ref MINUS_GREATER_THAN: Regex = Regex::new(r#"^\->"#).unwrap();
-            static ref LESS_THAN: Regex = Regex::new(r#"^<"#).unwrap();
-            static ref GREATER_THAN: Regex = Regex::new(r#"^>"#).unwrap();
-            static ref EQUAL: Regex = Regex::new(r#"^="#).unwrap();
-            static ref AMPERSAND: Regex = Regex::new(r#"^&"#).unwrap();
-            static ref PIPE: Regex = Regex::new(r#"^\|"#).unwrap();
-            static ref PLUS: Regex = Regex::new(r#"^\+"#).unwrap();
-            static ref MINUS: Regex = Regex::new(r#"^-"#).unwrap();
-            static ref STAR: Regex = Regex::new(r#"^\*"#).unwrap();
-            static ref SLASH: Regex = Regex::new(r#"^/"#).unwrap();
-            static ref COMMA: Regex = Regex::new(r#"^,"#).unwrap();
-            static ref COLON: Regex = Regex::new(r#"^:"#).unwrap();
-            static ref SEMICOLON: Regex = Regex::new(r#"^;"#).unwrap();
-            static ref OPEN_ROUND_BRACKET: Regex = Regex::new(r#"^\("#).unwrap();
-            static ref CLOSE_ROUND_BRACKET: Regex = Regex::new(r#"^\)"#).unwrap();
-            static ref OPEN_SQUARE_BRACKET: Regex = Regex::new(r#"^\["#).unwrap();
-            static ref CLOSE_SQUARE_BRACKET: Regex = Regex::new(r#"^\]"#).unwrap();
-            static ref OPEN_CURLY_BRACKET: Regex = Regex::new(r#"^\{"#).unwrap();
-            static ref CLOSE_CURLY_BRACKET: Regex = Regex::new(r#"^\}"#).unwrap();
-            static ref KEYWORD_FN: Regex = Regex::new(r#"^fn(\s|$)"#).unwrap();
-            static ref KEYWORD_TYPE: Regex = Regex::new(r#"^type(\s|$)"#).unwrap();
-            static ref KEYWORD_VAR: Regex = Regex::new(r#"^var(\s|$)"#).unwrap();
-            static ref KEYWORD_LET: Regex = Regex::new(r#"^let(\s|$)"#).unwrap();
-            static ref KEYWORD_IF: Regex = Regex::new(r#"^if(\s|$)"#).unwrap();
-            static ref KEYWORD_ELSE: Regex = Regex::new(r#"^else(\s|$)"#).unwrap();
-            static ref KEYWORD_FOR: Regex = Regex::new(r#"^for(\s|$)"#).unwrap();
-            static ref KEYWORD_WHILE: Regex = Regex::new(r#"^while(\s|$)"#).unwrap();
-            static ref KEYWORD_AND: Regex = Regex::new(r#"^and(\s|$)"#).unwrap();
-            static ref KEYWORD_OR: Regex = Regex::new(r#"^or(\s|$)"#).unwrap();
-            static ref KEYWORD_NOT: Regex = Regex::new(r#"^not(\s|$)"#).unwrap();
-            static ref KEYWORD_XOR: Regex = Regex::new(r#"^xor(\s|$)"#).unwrap();
-            static ref KEYWORD_NOR: Regex = Regex::new(r#"^nor(\s|$)"#).unwrap();
-            static ref KEYWORD_TRUE: Regex = Regex::new(r#"^true(\s|$)"#).unwrap();
-            static ref KEYWORD_FALSE: Regex = Regex::new(r#"^false(\s|$)"#).unwrap();
-            static ref IDENTIFIER: Regex = Regex::new(r#"^([a-zA-Z][a-zA-Z0-9]*)([^a-zA-Z0-9]|$)"#).unwrap();
-            static ref TOKENS_REGEXEPS: Vec<(&'static Regex, fn(&str) -> TokenKind)> = vec![
-                (&FLOATING_POINT, |fp| {
-                    TokenKind::FloatingPoint(fp.parse::<f64>().unwrap())
-                }),
-                (&INTEGER, |i| {
-                    TokenKind::Integer(i.parse::<i64>().unwrap())
-                }),
-                (&STRING, |s| { TokenKind::String(&s[1..s.len() - 1]) }),
-                (&EQUAL_EQUAL, |_| { TokenKind::EqualEqual }),
-                (&LESS_THAN_EQUAL, |_| { TokenKind::LessThanEqual }),
-                (&GREATER_THAN_EQUAL, |_| { TokenKind::GreaterThanEqual }),
-                (&EXCLAMATION_MARK_EQUAL, |_| {
-                    TokenKind::ExclamationMarkEqual
-                }),
-                (&PIPE_GREATER_THAN, |_| { TokenKind::PipeGreaterThan }),
-                (&MINUS_GREATER_THAN, |_| { TokenKind::MinusGreaterThan }),
-                (&LESS_THAN, |_| { TokenKind::LessThan }),
-                (&GREATER_THAN, |_| { TokenKind::GreaterThan }),
-                (&EQUAL, |_| { TokenKind::Equal }),
-                (&AMPERSAND, |_| { TokenKind::Ampersand }),
-                (&PIPE, |_| { TokenKind::Pipe }),
-                (&PLUS, |_| { TokenKind::Plus }),
-                (&MINUS, |_| { TokenKind::Minus }),
-                (&STAR, |_| { TokenKind::Star }),
-                (&SLASH, |_| { TokenKind::Slash }),
-                (&COMMA, |_| { TokenKind::Comma }),
-                (&COLON, |_| { TokenKind::Colon }),
-                (&SEMICOLON, |_| { TokenKind::SemiColon }),
-                (&OPEN_ROUND_BRACKET, |_| { TokenKind::OpenRoundBracket }),
-                (&CLOSE_ROUND_BRACKET, |_| { TokenKind::CloseRoundBracket }),
-                (&OPEN_SQUARE_BRACKET, |_| { TokenKind::OpenSquareBracket }),
-                (&CLOSE_SQUARE_BRACKET, |_| { TokenKind::CloseSquareBracket }),
-                (&OPEN_CURLY_BRACKET, |_| { TokenKind::OpenCurlyBracket }),
-                (&CLOSE_CURLY_BRACKET, |_| { TokenKind::CloseCurlyBracket }),
-                (&KEYWORD_FN, |_| { TokenKind::KeywordFn }),
-                (&KEYWORD_TYPE, |_| { TokenKind::KeywordType }),
-                (&KEYWORD_VAR, |_| { TokenKind::KeywordVar }),
-                (&KEYWORD_LET, |_| { TokenKind::KeywordLet }),
-                (&KEYWORD_IF, |_| { TokenKind::KeywordIf }),
-                (&KEYWORD_ELSE, |_| { TokenKind::KeywordElse }),
-                (&KEYWORD_FOR, |_| { TokenKind::KeywordFor }),
-                (&KEYWORD_WHILE, |_| { TokenKind::KeywordWhile }),
-                (&KEYWORD_AND, |_| { TokenKind::KeywordAnd }),
-                (&KEYWORD_OR, |_| { TokenKind::KeywordOr }),
-                (&KEYWORD_NOT, |_| { TokenKind::KeywordNot }),
-                (&KEYWORD_XOR, |_| { TokenKind::KeywordXor }),
-                (&KEYWORD_NOR, |_| { TokenKind::KeywordNor }),
-                (&KEYWORD_TRUE, |_| { TokenKind::KeywordTrue }),
-                (&KEYWORD_FALSE, |_| { TokenKind::KeywordFalse }),
-                (&IDENTIFIER, |i| { TokenKind::Identifier(i.trim_end()) })
-            ];
-        };
+            static ref FLOATING_POINT_REGEX: Regex = Regex::new(r#"^\d*\.\d+"#).unwrap();
+            static ref INTEGER_REGEX: Regex = Regex::new(r#"^\d+"#).unwrap();
+            static ref STRING_REGEX: Regex = Regex::new(r#"^"(\\"|[^"])*""#).unwrap();
+            static ref IDENTIFIER_REGEX: Regex = Regex::new(r#"^([a-zA-Z][a-zA-Z0-9]*)"#).unwrap();
+        }
 
-        for (regex, converter) in TOKENS_REGEXEPS.iter() {
-            if let Some(captures) = regex.captures(self.remaining_string) {
-                let string_capture = captures.get(0).unwrap().as_str();
+        // NOTE: These needs to be ordered by descending length or it won't work
+        const SYMBOLS: &[(&str, TokenKind)] = &[
+            ("==", TokenKind::EqualEqual),
+            ("<=", TokenKind::LessThanEqual),
+            (">=", TokenKind::GreaterThanEqual),
+            ("!=", TokenKind::ExclamationMarkEqual),
+            ("|>", TokenKind::PipeGreaterThan),
+            ("->", TokenKind::MinusGreaterThan),
+            ("<", TokenKind::LessThan),
+            (">", TokenKind::GreaterThan),
+            ("=", TokenKind::Equal),
+            ("&", TokenKind::Ampersand),
+            ("|", TokenKind::Pipe),
+            ("+", TokenKind::Plus),
+            ("-", TokenKind::Minus),
+            ("*", TokenKind::Star),
+            ("/", TokenKind::Slash),
+            (",", TokenKind::Comma),
+            (";", TokenKind::SemiColon),
+            (":", TokenKind::Colon),
+            ("(", TokenKind::OpenRoundBracket),
+            (")", TokenKind::CloseRoundBracket),
+            ("[", TokenKind::OpenSquareBracket),
+            ("]", TokenKind::CloseSquareBracket),
+            ("{", TokenKind::OpenCurlyBracket),
+            ("}", TokenKind::CloseCurlyBracket),
+        ];
+
+        const KEYWORDS: &[(&str, TokenKind)] = &[
+            ("fn", TokenKind::KeywordFn),
+            ("type", TokenKind::KeywordType),
+            ("var", TokenKind::KeywordVar),
+            ("let", TokenKind::KeywordLet),
+            ("if", TokenKind::KeywordIf),
+            ("else", TokenKind::KeywordElse),
+            ("for", TokenKind::KeywordFor),
+            ("while", TokenKind::KeywordWhile),
+            ("and", TokenKind::KeywordAnd),
+            ("or", TokenKind::KeywordOr),
+            ("not", TokenKind::KeywordNot),
+            ("xor", TokenKind::KeywordXor),
+            ("nor", TokenKind::KeywordNor),
+            ("true", TokenKind::KeywordTrue),
+            ("false", TokenKind::KeywordFalse),
+            ("return", TokenKind::KeywordReturn),
+        ];
+
+        if let Some(captures) = FLOATING_POINT_REGEX.captures(self.remaining_string) {
+            let string_capture = captures.get(0).unwrap().as_str();
+            let token = Token {
+                kind: TokenKind::FloatingPoint(string_capture.parse::<f64>().unwrap()),
+                line: self.line,
+                column: self.column,
+            };
+            self.column += string_capture.len() as u64;
+            self.remaining_string = &self.remaining_string[string_capture.len()..];
+
+            return Some(Ok(token));
+        }
+
+        if let Some(captures) = INTEGER_REGEX.captures(self.remaining_string) {
+            let string_capture = captures.get(0).unwrap().as_str();
+            let token = Token {
+                kind: TokenKind::Integer(string_capture.parse::<i64>().unwrap()),
+                line: self.line,
+                column: self.column,
+            };
+            self.column += string_capture.len() as u64;
+            self.remaining_string = &self.remaining_string[string_capture.len()..];
+
+            return Some(Ok(token));
+        }
+
+        if let Some(captures) = STRING_REGEX.captures(self.remaining_string) {
+            let string_capture = captures.get(0).unwrap().as_str();
+            let token = Token {
+                kind: TokenKind::String(&string_capture[1..string_capture.len() - 1]),
+                line: self.line,
+                column: self.column,
+            };
+            self.column += string_capture.len() as u64;
+            self.remaining_string = &self.remaining_string[string_capture.len()..];
+
+            return Some(Ok(token));
+        }
+
+        if let Some(captures) = IDENTIFIER_REGEX.captures(self.remaining_string) {
+            let string_capture = captures.get(0).unwrap().as_str();
+            let token = Token {
+                kind: {
+                    if let Some((_, token_kind)) = KEYWORDS
+                        .iter()
+                        .find(|(keyword, _)| *keyword == string_capture)
+                    {
+                        token_kind.clone()
+                    } else {
+                        TokenKind::Identifier(string_capture)
+                    }
+                },
+                line: self.line,
+                column: self.column,
+            };
+            self.column += string_capture.len() as u64;
+            self.remaining_string = &self.remaining_string[string_capture.len()..];
+
+            return Some(Ok(token));
+        }
+
+        for (symbol, token_kind) in SYMBOLS {
+            if self.remaining_string.starts_with(symbol) {
                 let token = Token {
-                    kind: converter(string_capture),
+                    kind: token_kind.clone(),
                     line: self.line,
                     column: self.column,
                 };
-                self.column += string_capture.len() as u64;
-                self.remaining_string = &self.remaining_string[string_capture.len()..];
-
+                self.column += symbol.len() as u64;
+                self.remaining_string = &self.remaining_string[symbol.len()..];
                 return Some(Ok(token));
             }
         }
