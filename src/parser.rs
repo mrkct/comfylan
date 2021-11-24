@@ -27,22 +27,24 @@ pub enum ASTNode<'a> {
     ),
     FunctionDeclaration(
         &'a Token<'a>,
-        Vec<(&'a Token<'a>, Type<'a>)>,
-        Type<'a>,
+        Vec<(&'a Token<'a>, Box<Type<'a>>)>,
+        Box<Type<'a>>,
         Box<ASTNode<'a>>,
     ),
     Block(Vec<Box<ASTNode<'a>>>),
 }
 
+// TODO: More complex types
 #[derive(Debug, PartialEq)]
 pub enum Type<'a> {
-    Base(&'a Token<'a>), // TODO: More complex types
+    Base(&'a Token<'a>),
+    Array(Box<Type<'a>>),
 }
 
 /*
 Program := (<Function>|<Type-Declaration>)*
 Function := fn identifier ( <Empty>|<Arg> (,<Arg>)* ) -> <Type> <Block>
-Type := identifier
+Type := identifier | [ Type ]
 Arg := identifier : <Type>
 Block := { Statement* }
 Statement := (<Block> | <LetDeclaration> | <VarDeclaration> | <Assignment> | <IfExpr> | <WhileExpr> | <ForExpr> | <Expr>) ;
@@ -277,12 +279,18 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_type(&mut self) -> Option<Type<'a>> {
-        rewinding_if_none!(self, {
-            let t = try_consume!(self.tokens, TokenKind::Identifier(_))?;
-            // TODO: Implement more complex types
-            Some(Type::Base(t))
-        })
+    fn parse_type(&mut self) -> Option<Box<Type<'a>>> {
+        if let Some(array_of_type) = rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
+            let inner_type = self.parse_type()?;
+            try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
+            Some(Box::new(Type::Array(inner_type)))
+        }) {
+            Some(array_of_type)
+        } else {
+            let base_type = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            Some(Box::new(Type::Base(base_type)))
+        }
     }
 
     fn parse_function_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
@@ -395,6 +403,12 @@ mod tests {
     macro_rules! val {
         ($val:expr) => {
             Box::new(ASTNode::Value($val))
+        };
+    }
+
+    macro_rules! basetype {
+        ($val:expr) => {
+            Box::new(Type::Base(&tok!(TokenKind::Identifier($val))))
         };
     }
 
@@ -829,6 +843,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_array_of_array_of_ints() {
+        let tokens = [
+            tok!(TokenKind::OpenSquareBracket),
+            tok!(TokenKind::OpenSquareBracket),
+            tok!(TokenKind::Identifier("int")),
+            tok!(TokenKind::CloseSquareBracket),
+            tok!(TokenKind::CloseSquareBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_type(),
+            Some(Box::new(Type::Array(Box::new(Type::Array(basetype!(
+                "int"
+            ))))))
+        );
+    }
+
+    #[test]
     fn parse_function_declaration() {
         let tokens = [
             tok!(TokenKind::KeywordFn),
@@ -858,20 +891,11 @@ mod tests {
             Some(Box::new(ASTNode::FunctionDeclaration(
                 &tok!(TokenKind::Identifier("myfunc")),
                 vec![
-                    (
-                        &tok!(TokenKind::Identifier("arg1")),
-                        Type::Base(&tok!(TokenKind::Identifier("u32")))
-                    ),
-                    (
-                        &tok!(TokenKind::Identifier("arg2")),
-                        Type::Base(&tok!(TokenKind::Identifier("bool")))
-                    ),
-                    (
-                        &tok!(TokenKind::Identifier("arg3")),
-                        Type::Base(&tok!(TokenKind::Identifier("str")))
-                    ),
+                    (&tok!(TokenKind::Identifier("arg1")), basetype!("u32")),
+                    (&tok!(TokenKind::Identifier("arg2")), basetype!("bool")),
+                    (&tok!(TokenKind::Identifier("arg3")), basetype!("str")),
                 ],
-                Type::Base(&tok!(TokenKind::Identifier("ReturnType"))),
+                basetype!("ReturnType"),
                 Box::new(ASTNode::Block(vec![]))
             )))
         );
