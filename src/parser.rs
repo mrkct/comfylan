@@ -610,6 +610,120 @@ mod tests {
     }
 
     #[test]
+    fn parse_very_complex_expression() {
+        // 2 + 3 * 5 * -1 - -2 == ((1 / 2.0) + "hello") and (x xor y) or (true != false nor 0.1 <= .1234 >= .123)
+        let tokens = [
+            tok!(TokenKind::Integer(2)),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::Integer(3)),
+            tok!(TokenKind::Star),
+            tok!(TokenKind::Integer(5)),
+            tok!(TokenKind::Star),
+            tok!(TokenKind::Minus),
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::Minus),
+            tok!(TokenKind::Minus),
+            tok!(TokenKind::Integer(2)),
+            tok!(TokenKind::EqualEqual),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::Integer(1)),
+            tok!(TokenKind::Slash),
+            tok!(TokenKind::FloatingPoint(2.0)),
+            tok!(TokenKind::CloseRoundBracket),
+            tok!(TokenKind::Plus),
+            tok!(TokenKind::String("hello")),
+            tok!(TokenKind::CloseRoundBracket),
+            tok!(TokenKind::KeywordAnd),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::Identifier("x")),
+            tok!(TokenKind::KeywordXor),
+            tok!(TokenKind::Identifier("y")),
+            tok!(TokenKind::CloseRoundBracket),
+            tok!(TokenKind::KeywordOr),
+            tok!(TokenKind::OpenRoundBracket),
+            tok!(TokenKind::KeywordTrue),
+            tok!(TokenKind::ExclamationMarkEqual),
+            tok!(TokenKind::KeywordFalse),
+            tok!(TokenKind::KeywordNor),
+            tok!(TokenKind::FloatingPoint(0.1)),
+            tok!(TokenKind::LessThanEqual),
+            tok!(TokenKind::FloatingPoint(0.1234)),
+            tok!(TokenKind::GreaterThanEqual),
+            tok!(TokenKind::FloatingPoint(0.123)),
+            tok!(TokenKind::CloseRoundBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(binop!(
+                binop!(
+                    binop!(
+                        binop!(
+                            binop!(
+                                val!(&tok!(TokenKind::Integer(2))),
+                                &tok!(TokenKind::Plus),
+                                binop!(
+                                    binop!(
+                                        val!(&tok!(TokenKind::Integer(3))),
+                                        &tok!(TokenKind::Star),
+                                        val!(&tok!(TokenKind::Integer(5)))
+                                    ),
+                                    &tok!(TokenKind::Star),
+                                    Box::new(ASTNode::UnaryOperation(
+                                        &tok!(TokenKind::Minus),
+                                        val!(&tok!(TokenKind::Integer(1)))
+                                    ))
+                                )
+                            ),
+                            &tok!(TokenKind::Minus),
+                            Box::new(ASTNode::UnaryOperation(
+                                &tok!(TokenKind::Minus),
+                                val!(&tok!(TokenKind::Integer(2))),
+                            ))
+                        ),
+                        &tok!(TokenKind::EqualEqual),
+                        binop!(
+                            binop!(
+                                val!(&tok!(TokenKind::Integer(1))),
+                                &tok!(TokenKind::Slash),
+                                val!(&tok!(TokenKind::FloatingPoint(2.0)))
+                            ),
+                            &tok!(TokenKind::Plus),
+                            val!(&tok!(TokenKind::String("hello")))
+                        )
+                    ),
+                    &tok!(TokenKind::KeywordAnd),
+                    binop!(
+                        val!(&tok!(TokenKind::Identifier("x"))),
+                        &tok!(TokenKind::KeywordXor),
+                        val!(&tok!(TokenKind::Identifier("y")))
+                    )
+                ),
+                &tok!(TokenKind::KeywordOr),
+                binop!(
+                    binop!(
+                        val!(&tok!(TokenKind::KeywordTrue)),
+                        &tok!(TokenKind::ExclamationMarkEqual),
+                        val!(&tok!(TokenKind::KeywordFalse))
+                    ),
+                    &tok!(TokenKind::KeywordNor),
+                    binop!(
+                        binop!(
+                            val!(&tok!(TokenKind::FloatingPoint(0.1))),
+                            &tok!(TokenKind::LessThanEqual),
+                            val!(&tok!(TokenKind::FloatingPoint(0.1234)))
+                        ),
+                        &tok!(TokenKind::GreaterThanEqual),
+                        val!(&tok!(TokenKind::FloatingPoint(0.123)))
+                    )
+                )
+            ))
+        );
+    }
+
+    #[test]
     fn parenthesis_precedence() {
         let tokens = [
             tok!(TokenKind::Integer(1)),
