@@ -1,6 +1,24 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 
+pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token<'a>>, Vec<LexerError<'a>>> {
+    let mut collected_tokens = vec![];
+    let mut collected_errors = vec![];
+    for token_or_error in Lexer::new(source) {
+        match token_or_error {
+            Err(error) => collected_errors.push(error),
+            Ok(token) if collected_errors.is_empty() => collected_tokens.push(token),
+            _ => {}
+        }
+    }
+
+    if collected_errors.is_empty() {
+        Ok(collected_tokens)
+    } else {
+        Err(collected_errors)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum TokenKind<'a> {
     Integer(i64),
