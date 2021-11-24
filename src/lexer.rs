@@ -139,7 +139,7 @@ impl<'a> Iterator for Lexer<'a> {
             static ref GREATER_THAN_EQUAL: Regex = Regex::new(r#"^>="#).unwrap();
             static ref EXCLAMATION_MARK_EQUAL: Regex = Regex::new(r#"^!="#).unwrap();
             static ref PIPE_GREATER_THAN: Regex = Regex::new(r#"^\|>"#).unwrap();
-            static ref MINUS_GREATER_THAN: Regex = Regex::new(r#"->"#).unwrap();
+            static ref MINUS_GREATER_THAN: Regex = Regex::new(r#"^\->"#).unwrap();
             static ref LESS_THAN: Regex = Regex::new(r#"^<"#).unwrap();
             static ref GREATER_THAN: Regex = Regex::new(r#"^>"#).unwrap();
             static ref EQUAL: Regex = Regex::new(r#"^="#).unwrap();
@@ -173,7 +173,7 @@ impl<'a> Iterator for Lexer<'a> {
             static ref KEYWORD_NOR: Regex = Regex::new(r#"^nor(\s|$)"#).unwrap();
             static ref KEYWORD_TRUE: Regex = Regex::new(r#"^true(\s|$)"#).unwrap();
             static ref KEYWORD_FALSE: Regex = Regex::new(r#"^false(\s|$)"#).unwrap();
-            static ref IDENTIFIER: Regex = Regex::new(r#"^([a-zA-Z][a-zA-Z0-9]*)(\s|$)"#).unwrap();
+            static ref IDENTIFIER: Regex = Regex::new(r#"^([a-zA-Z][a-zA-Z0-9]*)([^a-zA-Z0-9]|$)"#).unwrap();
             static ref TOKENS_REGEXEPS: Vec<(&'static Regex, fn(&str) -> TokenKind)> = vec![
                 (&FLOATING_POINT, |fp| {
                     TokenKind::FloatingPoint(fp.parse::<f64>().unwrap())
