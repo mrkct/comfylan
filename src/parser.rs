@@ -16,6 +16,7 @@ pub enum ASTNode<'a> {
     LetDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     Assignment(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
+    Return(Box<ASTNode<'a>>),
     If(Box<ASTNode<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
     While(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
     For(
@@ -39,7 +40,7 @@ pub enum Type<'a> {
 
 /*
 Program := (<Function>|<Type-Declaration>)*
-Function := fn identifier ( <Empty>|<Arg> (,<Arg>)* ) :: <Type> <Block>
+Function := fn identifier ( <Empty>|<Arg> (,<Arg>)* ) -> <Type> <Block>
 Type := identifier
 Arg := identifier : <Type>
 Block := { Statement* }
@@ -49,6 +50,7 @@ VarDeclaration := var identifier (: <Type>) = <Expr>
 Assignment := identifier = <Expr>
 IfExpr := if ( <Expr> ) <Block> (else <Block>)
 WhileExpr := while ( <Expr> ) <Block>
+Return := return <Expr>
 --cut-- ForExpr := for (<Statement>*) (<Expr>) (<Statement>*) <Block>
 Expr := P1Expr
 P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
@@ -255,6 +257,14 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_return(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordReturn)?;
+            let expression = self.parse_expr()?;
+            Some(Box::new(ASTNode::Return(expression)))
+        })
+    }
+
     fn parse_type(&mut self) -> Option<Type<'a>> {
         rewinding_if_none!(self, {
             let t = try_consume!(self.tokens, TokenKind::Identifier(_))?;
@@ -306,6 +316,7 @@ impl<'a> Parser<'a> {
             Self::parse_let_declaration,
             Self::parse_var_declaration,
             Self::parse_assignment,
+            Self::parse_return,
         ];
         let block_terminated_statements = [Self::parse_block, Self::parse_while, Self::parse_if];
 
@@ -721,6 +732,19 @@ mod tests {
                 val!(&tok!(TokenKind::KeywordTrue)),
                 Box::new(ASTNode::Block(vec![]))
             )))
+        );
+    }
+
+    #[test]
+    fn parse_return() {
+        let tokens = [tok!(TokenKind::KeywordReturn), tok!(TokenKind::Integer(1))];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_return(),
+            Some(Box::new(ASTNode::Return(val!(&tok!(TokenKind::Integer(
+                1
+            ))),)))
         );
     }
 
