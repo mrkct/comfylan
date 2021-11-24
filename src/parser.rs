@@ -302,15 +302,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Option<Box<ASTNode<'a>>> {
-        let possible_statements = [
+        let semicolon_terminated_statements = [
             Self::parse_let_declaration,
             Self::parse_var_declaration,
             Self::parse_assignment,
-            Self::parse_while,
-            Self::parse_function_declaration,
         ];
+        let block_terminated_statements = [Self::parse_block, Self::parse_while, Self::parse_if];
 
-        for parsing_method in possible_statements {
+        for parsing_method in semicolon_terminated_statements {
             if let Some(node) = rewinding_if_none!(self, {
                 let node = parsing_method(self)?;
                 try_consume!(self.tokens, TokenKind::SemiColon)?;
@@ -319,6 +318,16 @@ impl<'a> Parser<'a> {
                 return Some(node);
             }
         }
+
+        for parsing_method in block_terminated_statements {
+            if let Some(node) = rewinding_if_none!(self, {
+                let node = parsing_method(self)?;
+                Some(node)
+            }) {
+                return Some(node);
+            }
+        }
+
         None
     }
 
