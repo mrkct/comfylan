@@ -393,81 +393,76 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
-    macro_rules! tok {
-        ($p:expr) => {
-            Token {
-                kind: $p,
-                line: 0,
-                column: 0,
-            }
-        };
+    fn tok(kind: TokenKind) -> Token {
+        Token {
+            kind: kind,
+            line: 0,
+            column: 0,
+        }
     }
 
-    macro_rules! binop {
-        ($left:expr, $op:expr, $right:expr) => {
-            Box::new(ASTNode::BinaryOperation($left, $op, $right))
-        };
+    fn binop<'a>(
+        left: Box<ASTNode<'a>>,
+        op: &'a Token<'a>,
+        right: Box<ASTNode<'a>>,
+    ) -> Box<ASTNode<'a>> {
+        Box::new(ASTNode::BinaryOperation(left, op, right))
     }
 
-    macro_rules! val {
-        ($val:expr) => {
-            Box::new(ASTNode::Value($val))
-        };
+    fn val<'a>(v: &'a Token<'a>) -> Box<ASTNode<'a>> {
+        Box::new(ASTNode::Value(v))
     }
 
     macro_rules! basetype {
         ($val:expr) => {
-            Box::new(Type::Base(&tok!(TokenKind::Identifier($val))))
+            Box::new(Type::Base(&tok(TokenKind::Identifier($val))))
         };
     }
 
     #[test]
     fn try_parse_value() {
         let tokens = [
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::FloatingPoint(3.14)),
-            tok!(TokenKind::String("Hello")),
-            tok!(TokenKind::Identifier("count")),
-            tok!(TokenKind::Ampersand),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::FloatingPoint(3.14)),
+            tok(TokenKind::String("Hello")),
+            tok(TokenKind::Identifier("count")),
+            tok(TokenKind::Ampersand),
         ];
         let mut parser = Parser::new(&tokens);
 
+        assert_eq!(parser.parse_value(), Some(val(&tok(TokenKind::Integer(1)))));
         assert_eq!(
             parser.parse_value(),
-            Some(val!(&tok!(TokenKind::Integer(1))))
+            Some(val(&tok(TokenKind::FloatingPoint(3.14))))
         );
         assert_eq!(
             parser.parse_value(),
-            Some(val!(&tok!(TokenKind::FloatingPoint(3.14))))
+            Some(val(&tok(TokenKind::String("Hello"))))
         );
         assert_eq!(
             parser.parse_value(),
-            Some(val!(&tok!(TokenKind::String("Hello"))))
-        );
-        assert_eq!(
-            parser.parse_value(),
-            Some(val!(&tok!(TokenKind::Identifier("count"))))
+            Some(val(&tok(TokenKind::Identifier("count"))))
         );
         assert_eq!(parser.parse_value(), None);
     }
 
     #[test]
     fn parse_p5expr() {
-        let tokens = [tok!(TokenKind::Integer(1))];
+        let tokens = [tok(TokenKind::Integer(1))];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(val!(&tok!(TokenKind::Integer(1))))
+            Some(val(&tok(TokenKind::Integer(1))))
         );
 
-        let tokens = [tok!(TokenKind::Minus), tok!(TokenKind::Integer(1))];
+        let tokens = [tok(TokenKind::Minus), tok(TokenKind::Integer(1))];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
             Some(Box::new(ASTNode::UnaryOperation(
-                &tok!(TokenKind::Minus),
-                val!(&tok!(TokenKind::Integer(1)))
+                &tok(TokenKind::Minus),
+                val(&tok(TokenKind::Integer(1)))
             )))
         );
     }
@@ -475,25 +470,25 @@ mod tests {
     #[test]
     fn parse_p4expr() {
         let tokens = [
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Star),
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::Slash),
-            tok!(TokenKind::Integer(3)),
-            tok!(TokenKind::Plus),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Star),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::Slash),
+            tok(TokenKind::Integer(3)),
+            tok(TokenKind::Plus),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p4expr(),
-            Some(binop!(
-                binop!(
-                    val!(&tok!(TokenKind::Integer(1))),
-                    &tok!(TokenKind::Star),
-                    val!(&tok!(TokenKind::Integer(2)))
+            Some(binop(
+                binop(
+                    val(&tok(TokenKind::Integer(1))),
+                    &tok(TokenKind::Star),
+                    val(&tok(TokenKind::Integer(2)))
                 ),
-                &tok!(TokenKind::Slash),
-                val!(&tok!(TokenKind::Integer(3)))
+                &tok(TokenKind::Slash),
+                val(&tok(TokenKind::Integer(3)))
             ))
         );
     }
@@ -501,23 +496,23 @@ mod tests {
     #[test]
     fn parse_p3expr() {
         let tokens = [
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::Star),
-            tok!(TokenKind::Integer(3)),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::Star),
+            tok(TokenKind::Integer(3)),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p3expr(),
-            Some(binop!(
-                val!(&tok!(TokenKind::Integer(1))),
-                &tok!(TokenKind::Plus),
-                binop!(
-                    val!(&tok!(TokenKind::Integer(2))),
-                    &tok!(TokenKind::Star),
-                    val!(&tok!(TokenKind::Integer(3)))
+            Some(binop(
+                val(&tok(TokenKind::Integer(1))),
+                &tok(TokenKind::Plus),
+                binop(
+                    val(&tok(TokenKind::Integer(2))),
+                    &tok(TokenKind::Star),
+                    val(&tok(TokenKind::Integer(3)))
                 )
             ))
         );
@@ -526,42 +521,42 @@ mod tests {
     #[test]
     fn parse_p2expr() {
         let tokens = [
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::Star),
-            tok!(TokenKind::Integer(3)),
-            tok!(TokenKind::EqualEqual),
-            tok!(TokenKind::Integer(4)),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(3)),
-            tok!(TokenKind::LessThanEqual),
-            tok!(TokenKind::Integer(10)),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::Star),
+            tok(TokenKind::Integer(3)),
+            tok(TokenKind::EqualEqual),
+            tok(TokenKind::Integer(4)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(3)),
+            tok(TokenKind::LessThanEqual),
+            tok(TokenKind::Integer(10)),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p2expr(),
-            Some(binop!(
-                binop!(
-                    binop!(
-                        val!(&tok!(TokenKind::Integer(1))),
-                        &tok!(TokenKind::Plus),
-                        binop!(
-                            val!(&tok!(TokenKind::Integer(2))),
-                            &tok!(TokenKind::Star),
-                            val!(&tok!(TokenKind::Integer(3)))
+            Some(binop(
+                binop(
+                    binop(
+                        val(&tok(TokenKind::Integer(1))),
+                        &tok(TokenKind::Plus),
+                        binop(
+                            val(&tok(TokenKind::Integer(2))),
+                            &tok(TokenKind::Star),
+                            val(&tok(TokenKind::Integer(3)))
                         )
                     ),
-                    &tok!(TokenKind::EqualEqual),
-                    binop!(
-                        val!(&tok!(TokenKind::Integer(4))),
-                        &tok!(TokenKind::Plus),
-                        val!(&tok!(TokenKind::Integer(3)))
+                    &tok(TokenKind::EqualEqual),
+                    binop(
+                        val(&tok(TokenKind::Integer(4))),
+                        &tok(TokenKind::Plus),
+                        val(&tok(TokenKind::Integer(3)))
                     )
                 ),
-                &tok!(TokenKind::LessThanEqual),
-                val!(&tok!(TokenKind::Integer(10)))
+                &tok(TokenKind::LessThanEqual),
+                val(&tok(TokenKind::Integer(10)))
             ))
         );
     }
@@ -569,41 +564,41 @@ mod tests {
     #[test]
     fn parse_p1expr() {
         let tokens = [
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::LessThan),
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::KeywordAnd),
-            tok!(TokenKind::Integer(3)),
-            tok!(TokenKind::LessThan),
-            tok!(TokenKind::Integer(99)),
-            tok!(TokenKind::KeywordOr),
-            tok!(TokenKind::Integer(4)),
-            tok!(TokenKind::EqualEqual),
-            tok!(TokenKind::Integer(5)),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::LessThan),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::KeywordAnd),
+            tok(TokenKind::Integer(3)),
+            tok(TokenKind::LessThan),
+            tok(TokenKind::Integer(99)),
+            tok(TokenKind::KeywordOr),
+            tok(TokenKind::Integer(4)),
+            tok(TokenKind::EqualEqual),
+            tok(TokenKind::Integer(5)),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p1expr(),
-            Some(binop!(
-                binop!(
-                    binop!(
-                        val!(&tok!(TokenKind::Integer(1))),
-                        &tok!(TokenKind::LessThan),
-                        val!(&tok!(TokenKind::Integer(2)))
+            Some(binop(
+                binop(
+                    binop(
+                        val(&tok(TokenKind::Integer(1))),
+                        &tok(TokenKind::LessThan),
+                        val(&tok(TokenKind::Integer(2)))
                     ),
-                    &tok!(TokenKind::KeywordAnd),
-                    binop!(
-                        val!(&tok!(TokenKind::Integer(3))),
-                        &tok!(TokenKind::LessThan),
-                        val!(&tok!(TokenKind::Integer(99)))
+                    &tok(TokenKind::KeywordAnd),
+                    binop(
+                        val(&tok(TokenKind::Integer(3))),
+                        &tok(TokenKind::LessThan),
+                        val(&tok(TokenKind::Integer(99)))
                     )
                 ),
-                &tok!(TokenKind::KeywordOr),
-                binop!(
-                    val!(&tok!(TokenKind::Integer(4))),
-                    &tok!(TokenKind::EqualEqual),
-                    val!(&tok!(TokenKind::Integer(5)))
+                &tok(TokenKind::KeywordOr),
+                binop(
+                    val(&tok(TokenKind::Integer(4))),
+                    &tok(TokenKind::EqualEqual),
+                    val(&tok(TokenKind::Integer(5)))
                 )
             ))
         );
@@ -613,110 +608,110 @@ mod tests {
     fn parse_very_complex_expression() {
         // 2 + 3 * 5 * -1 - -2 == ((1 / 2.0) + "hello") and (x xor y) or (true != false nor 0.1 <= .1234 >= .123)
         let tokens = [
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(3)),
-            tok!(TokenKind::Star),
-            tok!(TokenKind::Integer(5)),
-            tok!(TokenKind::Star),
-            tok!(TokenKind::Minus),
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Minus),
-            tok!(TokenKind::Minus),
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::EqualEqual),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Slash),
-            tok!(TokenKind::FloatingPoint(2.0)),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::String("hello")),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::KeywordAnd),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::Identifier("x")),
-            tok!(TokenKind::KeywordXor),
-            tok!(TokenKind::Identifier("y")),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::KeywordOr),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::KeywordTrue),
-            tok!(TokenKind::ExclamationMarkEqual),
-            tok!(TokenKind::KeywordFalse),
-            tok!(TokenKind::KeywordNor),
-            tok!(TokenKind::FloatingPoint(0.1)),
-            tok!(TokenKind::LessThanEqual),
-            tok!(TokenKind::FloatingPoint(0.1234)),
-            tok!(TokenKind::GreaterThanEqual),
-            tok!(TokenKind::FloatingPoint(0.123)),
-            tok!(TokenKind::CloseRoundBracket),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(3)),
+            tok(TokenKind::Star),
+            tok(TokenKind::Integer(5)),
+            tok(TokenKind::Star),
+            tok(TokenKind::Minus),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Minus),
+            tok(TokenKind::Minus),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::EqualEqual),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Slash),
+            tok(TokenKind::FloatingPoint(2.0)),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::Plus),
+            tok(TokenKind::String("hello")),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::KeywordAnd),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::KeywordXor),
+            tok(TokenKind::Identifier("y")),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::KeywordOr),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::KeywordTrue),
+            tok(TokenKind::ExclamationMarkEqual),
+            tok(TokenKind::KeywordFalse),
+            tok(TokenKind::KeywordNor),
+            tok(TokenKind::FloatingPoint(0.1)),
+            tok(TokenKind::LessThanEqual),
+            tok(TokenKind::FloatingPoint(0.1234)),
+            tok(TokenKind::GreaterThanEqual),
+            tok(TokenKind::FloatingPoint(0.123)),
+            tok(TokenKind::CloseRoundBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_expr(),
-            Some(binop!(
-                binop!(
-                    binop!(
-                        binop!(
-                            binop!(
-                                val!(&tok!(TokenKind::Integer(2))),
-                                &tok!(TokenKind::Plus),
-                                binop!(
-                                    binop!(
-                                        val!(&tok!(TokenKind::Integer(3))),
-                                        &tok!(TokenKind::Star),
-                                        val!(&tok!(TokenKind::Integer(5)))
+            Some(binop(
+                binop(
+                    binop(
+                        binop(
+                            binop(
+                                val(&tok(TokenKind::Integer(2))),
+                                &tok(TokenKind::Plus),
+                                binop(
+                                    binop(
+                                        val(&tok(TokenKind::Integer(3))),
+                                        &tok(TokenKind::Star),
+                                        val(&tok(TokenKind::Integer(5)))
                                     ),
-                                    &tok!(TokenKind::Star),
+                                    &tok(TokenKind::Star),
                                     Box::new(ASTNode::UnaryOperation(
-                                        &tok!(TokenKind::Minus),
-                                        val!(&tok!(TokenKind::Integer(1)))
+                                        &tok(TokenKind::Minus),
+                                        val(&tok(TokenKind::Integer(1)))
                                     ))
                                 )
                             ),
-                            &tok!(TokenKind::Minus),
+                            &tok(TokenKind::Minus),
                             Box::new(ASTNode::UnaryOperation(
-                                &tok!(TokenKind::Minus),
-                                val!(&tok!(TokenKind::Integer(2))),
+                                &tok(TokenKind::Minus),
+                                val(&tok(TokenKind::Integer(2))),
                             ))
                         ),
-                        &tok!(TokenKind::EqualEqual),
-                        binop!(
-                            binop!(
-                                val!(&tok!(TokenKind::Integer(1))),
-                                &tok!(TokenKind::Slash),
-                                val!(&tok!(TokenKind::FloatingPoint(2.0)))
+                        &tok(TokenKind::EqualEqual),
+                        binop(
+                            binop(
+                                val(&tok(TokenKind::Integer(1))),
+                                &tok(TokenKind::Slash),
+                                val(&tok(TokenKind::FloatingPoint(2.0)))
                             ),
-                            &tok!(TokenKind::Plus),
-                            val!(&tok!(TokenKind::String("hello")))
+                            &tok(TokenKind::Plus),
+                            val(&tok(TokenKind::String("hello")))
                         )
                     ),
-                    &tok!(TokenKind::KeywordAnd),
-                    binop!(
-                        val!(&tok!(TokenKind::Identifier("x"))),
-                        &tok!(TokenKind::KeywordXor),
-                        val!(&tok!(TokenKind::Identifier("y")))
+                    &tok(TokenKind::KeywordAnd),
+                    binop(
+                        val(&tok(TokenKind::Identifier("x"))),
+                        &tok(TokenKind::KeywordXor),
+                        val(&tok(TokenKind::Identifier("y")))
                     )
                 ),
-                &tok!(TokenKind::KeywordOr),
-                binop!(
-                    binop!(
-                        val!(&tok!(TokenKind::KeywordTrue)),
-                        &tok!(TokenKind::ExclamationMarkEqual),
-                        val!(&tok!(TokenKind::KeywordFalse))
+                &tok(TokenKind::KeywordOr),
+                binop(
+                    binop(
+                        val(&tok(TokenKind::KeywordTrue)),
+                        &tok(TokenKind::ExclamationMarkEqual),
+                        val(&tok(TokenKind::KeywordFalse))
                     ),
-                    &tok!(TokenKind::KeywordNor),
-                    binop!(
-                        binop!(
-                            val!(&tok!(TokenKind::FloatingPoint(0.1))),
-                            &tok!(TokenKind::LessThanEqual),
-                            val!(&tok!(TokenKind::FloatingPoint(0.1234)))
+                    &tok(TokenKind::KeywordNor),
+                    binop(
+                        binop(
+                            val(&tok(TokenKind::FloatingPoint(0.1))),
+                            &tok(TokenKind::LessThanEqual),
+                            val(&tok(TokenKind::FloatingPoint(0.1234)))
                         ),
-                        &tok!(TokenKind::GreaterThanEqual),
-                        val!(&tok!(TokenKind::FloatingPoint(0.123)))
+                        &tok(TokenKind::GreaterThanEqual),
+                        val(&tok(TokenKind::FloatingPoint(0.123)))
                     )
                 )
             ))
@@ -726,25 +721,25 @@ mod tests {
     #[test]
     fn parenthesis_precedence() {
         let tokens = [
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Star),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(3)),
-            tok!(TokenKind::CloseRoundBracket),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Star),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(3)),
+            tok(TokenKind::CloseRoundBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_expr(),
-            Some(binop!(
-                val!(&tok!(TokenKind::Integer(1))),
-                &tok!(TokenKind::Star),
-                binop!(
-                    val!(&tok!(TokenKind::Integer(2))),
-                    &tok!(TokenKind::Plus),
-                    val!(&tok!(TokenKind::Integer(3)))
+            Some(binop(
+                val(&tok(TokenKind::Integer(1))),
+                &tok(TokenKind::Star),
+                binop(
+                    val(&tok(TokenKind::Integer(2))),
+                    &tok(TokenKind::Plus),
+                    val(&tok(TokenKind::Integer(3)))
                 )
             ))
         );
@@ -753,23 +748,23 @@ mod tests {
     #[test]
     fn parse_let_declaration() {
         let tokens = [
-            tok!(TokenKind::KeywordLet),
-            tok!(TokenKind::Identifier("myval")),
-            tok!(TokenKind::Equal),
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(1)),
+            tok(TokenKind::KeywordLet),
+            tok(TokenKind::Identifier("myval")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(1)),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_let_declaration(),
             Some(Box::new(ASTNode::LetDeclaration(
-                &tok!(TokenKind::Identifier("myval")),
-                binop!(
-                    val!(&tok!(TokenKind::Integer(1))),
-                    &tok!(TokenKind::Plus),
-                    val!(&tok!(TokenKind::Integer(1)))
+                &tok(TokenKind::Identifier("myval")),
+                binop(
+                    val(&tok(TokenKind::Integer(1))),
+                    &tok(TokenKind::Plus),
+                    val(&tok(TokenKind::Integer(1)))
                 )
             )))
         );
@@ -778,23 +773,23 @@ mod tests {
     #[test]
     fn parse_var_declaration() {
         let tokens = [
-            tok!(TokenKind::KeywordVar),
-            tok!(TokenKind::Identifier("myval")),
-            tok!(TokenKind::Equal),
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(1)),
+            tok(TokenKind::KeywordVar),
+            tok(TokenKind::Identifier("myval")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(1)),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_var_declaration(),
             Some(Box::new(ASTNode::VarDeclaration(
-                &tok!(TokenKind::Identifier("myval")),
-                binop!(
-                    val!(&tok!(TokenKind::Integer(1))),
-                    &tok!(TokenKind::Plus),
-                    val!(&tok!(TokenKind::Integer(1)))
+                &tok(TokenKind::Identifier("myval")),
+                binop(
+                    val(&tok(TokenKind::Integer(1))),
+                    &tok(TokenKind::Plus),
+                    val(&tok(TokenKind::Integer(1)))
                 )
             )))
         );
@@ -803,22 +798,22 @@ mod tests {
     #[test]
     fn parse_assignment() {
         let tokens = [
-            tok!(TokenKind::Identifier("x")),
-            tok!(TokenKind::Equal),
-            tok!(TokenKind::Identifier("x")),
-            tok!(TokenKind::Plus),
-            tok!(TokenKind::Integer(1)),
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(1)),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_assignment(),
             Some(Box::new(ASTNode::Assignment(
-                val!(&tok!(TokenKind::Identifier("x"))),
-                binop!(
-                    val!(&tok!(TokenKind::Identifier("x"))),
-                    &tok!(TokenKind::Plus),
-                    val!(&tok!(TokenKind::Integer(1)))
+                val(&tok(TokenKind::Identifier("x"))),
+                binop(
+                    val(&tok(TokenKind::Identifier("x"))),
+                    &tok(TokenKind::Plus),
+                    val(&tok(TokenKind::Integer(1)))
                 )
             )))
         );
@@ -827,18 +822,18 @@ mod tests {
     #[test]
     fn parse_statement() {
         let tokens = [
-            tok!(TokenKind::Identifier("x")),
-            tok!(TokenKind::Equal),
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::SemiColon),
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::SemiColon),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_statement(),
             Some(Box::new(ASTNode::Assignment(
-                val!(&tok!(TokenKind::Identifier("x"))),
-                val!(&tok!(TokenKind::Integer(1)))
+                val(&tok(TokenKind::Identifier("x"))),
+                val(&tok(TokenKind::Integer(1)))
             )))
         );
     }
@@ -846,22 +841,22 @@ mod tests {
     #[test]
     fn parse_if_else() {
         let tokens = [
-            tok!(TokenKind::KeywordIf),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::KeywordTrue),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
-            tok!(TokenKind::KeywordElse),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::KeywordIf),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::KeywordTrue),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::KeywordElse),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
             Some(Box::new(ASTNode::If(
-                val!(&tok!(TokenKind::KeywordTrue)),
+                val(&tok(TokenKind::KeywordTrue)),
                 Box::new(ASTNode::Block(vec![])),
                 Some(Box::new(ASTNode::Block(vec![])))
             )))
@@ -870,19 +865,19 @@ mod tests {
 
     fn parse_if_no_else() {
         let tokens = [
-            tok!(TokenKind::KeywordIf),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::KeywordTrue),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::KeywordIf),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::KeywordTrue),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
             Some(Box::new(ASTNode::If(
-                val!(&tok!(TokenKind::KeywordTrue)),
+                val(&tok(TokenKind::KeywordTrue)),
                 Box::new(ASTNode::Block(vec![])),
                 None
             )))
@@ -892,19 +887,19 @@ mod tests {
     #[test]
     fn parse_while() {
         let tokens = [
-            tok!(TokenKind::KeywordWhile),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::KeywordTrue),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::KeywordWhile),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::KeywordTrue),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_while(),
             Some(Box::new(ASTNode::While(
-                val!(&tok!(TokenKind::KeywordTrue)),
+                val(&tok(TokenKind::KeywordTrue)),
                 Box::new(ASTNode::Block(vec![]))
             )))
         );
@@ -913,16 +908,16 @@ mod tests {
     #[test]
     fn parse_for() {
         let tokens = [
-            tok!(TokenKind::KeywordFor),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::KeywordTrue),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::KeywordFor),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::KeywordTrue),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
@@ -930,7 +925,7 @@ mod tests {
             parser.parse_for(),
             Some(Box::new(ASTNode::For(
                 Box::new(ASTNode::Block(vec![])),
-                val!(&tok!(TokenKind::KeywordTrue)),
+                val(&tok(TokenKind::KeywordTrue)),
                 Box::new(ASTNode::Block(vec![])),
                 Box::new(ASTNode::Block(vec![])),
             )))
@@ -939,14 +934,12 @@ mod tests {
 
     #[test]
     fn parse_return() {
-        let tokens = [tok!(TokenKind::KeywordReturn), tok!(TokenKind::Integer(1))];
+        let tokens = [tok(TokenKind::KeywordReturn), tok(TokenKind::Integer(1))];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_return(),
-            Some(Box::new(ASTNode::Return(val!(&tok!(TokenKind::Integer(
-                1
-            ))),)))
+            Some(Box::new(ASTNode::Return(val(&tok(TokenKind::Integer(1))),)))
         );
     }
 
@@ -954,20 +947,20 @@ mod tests {
     fn parse_block() {
         let tokens = [
             // {
-            tok!(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::OpenCurlyBracket),
             // x = 1;
-            tok!(TokenKind::Identifier("x")),
-            tok!(TokenKind::Equal),
-            tok!(TokenKind::Integer(1)),
-            tok!(TokenKind::SemiColon),
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::SemiColon),
             // let y = 2;
-            tok!(TokenKind::KeywordLet),
-            tok!(TokenKind::Identifier("y")),
-            tok!(TokenKind::Equal),
-            tok!(TokenKind::Integer(2)),
-            tok!(TokenKind::SemiColon),
+            tok(TokenKind::KeywordLet),
+            tok(TokenKind::Identifier("y")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::SemiColon),
             // }
-            tok!(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
@@ -975,12 +968,12 @@ mod tests {
             parser.parse_block(),
             Some(Box::new(ASTNode::Block(vec![
                 Box::new(ASTNode::Assignment(
-                    val!(&tok!(TokenKind::Identifier("x"))),
-                    val!(&tok!(TokenKind::Integer(1)))
+                    val(&tok(TokenKind::Identifier("x"))),
+                    val(&tok(TokenKind::Integer(1)))
                 )),
                 Box::new(ASTNode::LetDeclaration(
-                    &tok!(TokenKind::Identifier("y")),
-                    val!(&tok!(TokenKind::Integer(2)))
+                    &tok(TokenKind::Identifier("y")),
+                    val(&tok(TokenKind::Integer(2)))
                 ))
             ])))
         );
@@ -989,11 +982,11 @@ mod tests {
     #[test]
     fn parse_array_of_array_of_ints() {
         let tokens = [
-            tok!(TokenKind::OpenSquareBracket),
-            tok!(TokenKind::OpenSquareBracket),
-            tok!(TokenKind::Identifier("int")),
-            tok!(TokenKind::CloseSquareBracket),
-            tok!(TokenKind::CloseSquareBracket),
+            tok(TokenKind::OpenSquareBracket),
+            tok(TokenKind::OpenSquareBracket),
+            tok(TokenKind::Identifier("int")),
+            tok(TokenKind::CloseSquareBracket),
+            tok(TokenKind::CloseSquareBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
@@ -1008,36 +1001,36 @@ mod tests {
     #[test]
     fn parse_function_declaration() {
         let tokens = [
-            tok!(TokenKind::KeywordFn),
-            tok!(TokenKind::Identifier("myfunc")),
-            tok!(TokenKind::OpenRoundBracket),
-            tok!(TokenKind::Identifier("arg1")),
-            tok!(TokenKind::Colon),
-            tok!(TokenKind::Identifier("u32")),
-            tok!(TokenKind::Comma),
-            tok!(TokenKind::Identifier("arg2")),
-            tok!(TokenKind::Colon),
-            tok!(TokenKind::Identifier("bool")),
-            tok!(TokenKind::Comma),
-            tok!(TokenKind::Identifier("arg3")),
-            tok!(TokenKind::Colon),
-            tok!(TokenKind::Identifier("str")),
-            tok!(TokenKind::CloseRoundBracket),
-            tok!(TokenKind::MinusGreaterThan),
-            tok!(TokenKind::Identifier("ReturnType")),
-            tok!(TokenKind::OpenCurlyBracket),
-            tok!(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::KeywordFn),
+            tok(TokenKind::Identifier("myfunc")),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Identifier("arg1")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("u32")),
+            tok(TokenKind::Comma),
+            tok(TokenKind::Identifier("arg2")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("bool")),
+            tok(TokenKind::Comma),
+            tok(TokenKind::Identifier("arg3")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("str")),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::MinusGreaterThan),
+            tok(TokenKind::Identifier("ReturnType")),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_function_declaration(),
             Some(Box::new(ASTNode::FunctionDeclaration(
-                &tok!(TokenKind::Identifier("myfunc")),
+                &tok(TokenKind::Identifier("myfunc")),
                 vec![
-                    (&tok!(TokenKind::Identifier("arg1")), basetype!("u32")),
-                    (&tok!(TokenKind::Identifier("arg2")), basetype!("bool")),
-                    (&tok!(TokenKind::Identifier("arg3")), basetype!("str")),
+                    (&tok(TokenKind::Identifier("arg1")), basetype!("u32")),
+                    (&tok(TokenKind::Identifier("arg2")), basetype!("bool")),
+                    (&tok(TokenKind::Identifier("arg3")), basetype!("str")),
                 ],
                 basetype!("ReturnType"),
                 Box::new(ASTNode::Block(vec![]))
