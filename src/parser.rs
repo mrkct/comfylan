@@ -16,6 +16,7 @@ pub enum ASTNode<'a> {
     LetDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     Assignment(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
+    ArrayIndexing(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
     Return(Box<ASTNode<'a>>),
     If(Box<ASTNode<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
     While(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
@@ -200,13 +201,38 @@ impl<'a> Parser<'a> {
         TokenKind::Star | TokenKind::Slash,
         parse_p5expr
     );
+
     fn parse_p5expr(&mut self) -> Option<Box<ASTNode<'a>>> {
-        let operator_or_none = try_consume!(self.tokens, TokenKind::Minus);
-        let value = self.parse_value()?;
-        match operator_or_none {
-            Some(operator) => Some(Box::new(ASTNode::UnaryOperation(operator, value))),
-            None => Some(value),
+        let parsing_methods = &[
+            Self::parse_unary_minus,
+            Self::parse_array_indexing,
+            Self::parse_value,
+        ];
+
+        for parser in parsing_methods {
+            if let Some(node) = parser(self) {
+                return Some(node);
+            }
         }
+        None
+    }
+
+    fn parse_unary_minus(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            let operator = try_consume!(self.tokens, TokenKind::Minus)?;
+            let value = self.parse_value()?;
+            Some(Box::new(ASTNode::UnaryOperation(operator, value)))
+        })
+    }
+
+    fn parse_array_indexing(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            let indexable = self.parse_value()?;
+            try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
+            let index = self.parse_expr()?;
+            try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
+            Some(Box::new(ASTNode::ArrayIndexing(indexable, index)))
+        })
     }
 
     fn parse_let_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
@@ -464,6 +490,21 @@ mod tests {
             parser.parse_p5expr(),
             Some(Box::new(ASTNode::UnaryOperation(
                 &tok(TokenKind::Minus),
+                val(&tok(TokenKind::Integer(1)))
+            )))
+        );
+
+        let tokens = [
+            tok(TokenKind::Identifier("values")),
+            tok(TokenKind::OpenSquareBracket),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::CloseSquareBracket),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p5expr(),
+            Some(Box::new(ASTNode::ArrayIndexing(
+                val(&tok(TokenKind::Identifier("values"))),
                 val(&tok(TokenKind::Integer(1)))
             )))
         );
