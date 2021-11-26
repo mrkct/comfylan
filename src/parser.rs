@@ -89,12 +89,12 @@ macro_rules! rewinding_if_none {
     ($self:expr, $e:block) => {
         (|| {
             let saved_tokens = $self.tokens;
-            match { $e } {
-                Some(t) => Some(t),
+            match { (|| $e)() } {
                 None => {
                     $self.tokens = saved_tokens;
                     None
                 }
+                some_value => some_value,
             }
         })()
     };
@@ -147,23 +147,25 @@ impl<'a> Parser<'a> {
             };
         }
 
-        try_match_single_token_to_value!(TokenKind::Integer(_));
-        try_match_single_token_to_value!(TokenKind::String(_));
-        try_match_single_token_to_value!(TokenKind::FloatingPoint(_));
-        try_match_single_token_to_value!(TokenKind::Identifier(_));
-        try_match_single_token_to_value!(TokenKind::KeywordTrue);
-        try_match_single_token_to_value!(TokenKind::KeywordFalse);
+        rewinding_if_none!(self, {
+            try_match_single_token_to_value!(TokenKind::Integer(_));
+            try_match_single_token_to_value!(TokenKind::String(_));
+            try_match_single_token_to_value!(TokenKind::FloatingPoint(_));
+            try_match_single_token_to_value!(TokenKind::Identifier(_));
+            try_match_single_token_to_value!(TokenKind::KeywordTrue);
+            try_match_single_token_to_value!(TokenKind::KeywordFalse);
 
-        if let Some(node) = rewinding_if_none!(self, {
-            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
-            let node = self.parse_expr()?;
-            try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
-            Some(node)
-        }) {
-            return Some(node);
-        }
+            if let Some(node) = rewinding_if_none!(self, {
+                try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+                let node = self.parse_expr()?;
+                try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+                Some(node)
+            }) {
+                return Some(node);
+            }
 
-        None
+            None
+        })
     }
 
     fn parse_expr(&mut self) -> Option<Box<ASTNode<'a>>> {
