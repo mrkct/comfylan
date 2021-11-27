@@ -2,7 +2,6 @@ use super::lexer::{Token, TokenKind};
 
 #[derive(Debug, PartialEq)]
 pub enum ASTNode<'a> {
-    Root(Vec<ASTNode<'a>>),
     Value(&'a Token<'a>),
     UnaryOperation(&'a Token<'a>, Box<ASTNode<'a>>),
     BinaryOperation(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
@@ -142,13 +141,13 @@ impl<'a> Parser<'a> {
         Some(collected_parameters)
     }
 
-    pub fn parse_program(&mut self) -> Option<Box<ASTNode<'a>>> {
+    pub fn parse_program(&mut self) -> Option<Vec<ASTNode<'a>>> {
         let mut collected_functions = vec![];
         while let Some(function) = self.parse_function_declaration() {
             collected_functions.push(*function);
         }
 
-        Some(Box::new(ASTNode::Root(collected_functions)))
+        Some(collected_functions)
     }
 
     fn parse_value(&mut self) -> Option<Box<ASTNode<'a>>> {

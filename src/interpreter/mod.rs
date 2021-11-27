@@ -1,5 +1,6 @@
 pub mod lexer;
 pub mod parser;
+pub mod walker;
 
 pub fn tokenize(source: &str) -> Result<Vec<lexer::Token>, Vec<lexer::LexerError>> {
     let mut collected_tokens = vec![];
@@ -19,9 +20,9 @@ pub fn tokenize(source: &str) -> Result<Vec<lexer::Token>, Vec<lexer::LexerError
     }
 }
 
-pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Box<parser::ASTNode<'a>>, &'static str> {
+pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Vec<parser::ASTNode<'a>>, &'static str> {
     match parser::Parser::new(tokens).parse_program() {
-        Some(ast) => Ok(ast),
+        Some(ast_nodes) => Ok(ast_nodes),
         None => Err("Parsing Error: I don't have any other info for you"),
     }
 }
