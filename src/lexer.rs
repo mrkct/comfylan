@@ -157,7 +157,7 @@ impl<'a> Iterator for Lexer<'a> {
             static ref FLOATING_POINT_REGEX: Regex = Regex::new(r#"^\d*\.\d+"#).unwrap();
             static ref INTEGER_REGEX: Regex = Regex::new(r#"^\d+"#).unwrap();
             static ref STRING_REGEX: Regex = Regex::new(r#"^"(\\"|[^"])*""#).unwrap();
-            static ref IDENTIFIER_REGEX: Regex = Regex::new(r#"^([a-zA-Z][a-zA-Z0-9]*)"#).unwrap();
+            static ref IDENTIFIER_REGEX: Regex = Regex::new(r#"^([a-zA-Z_][_a-zA-Z0-9]*)"#).unwrap();
         }
 
         // NOTE: These needs to be ordered by descending length or it won't work
