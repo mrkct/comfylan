@@ -957,6 +957,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn parse_if_no_else() {
         let tokens = [
             tok(TokenKind::KeywordIf),
