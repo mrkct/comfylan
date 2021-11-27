@@ -1,15 +1,8 @@
-use crate::lexer::{Token, TokenKind};
-
-pub fn parse<'a>(tokens: &'a [Token<'a>]) -> Result<Box<ASTNode<'a>>, &'static str> {
-    match Parser::new(tokens).parse_program() {
-        Some(ast) => Ok(ast),
-        None => Err("Parsing Error: I don't have any other info for you"),
-    }
-}
+use super::lexer::{Token, TokenKind};
 
 #[derive(Debug, PartialEq)]
 pub enum ASTNode<'a> {
-    Root(Vec<Box<ASTNode<'a>>>),
+    Root(Vec<ASTNode<'a>>),
     Value(&'a Token<'a>),
     UnaryOperation(&'a Token<'a>, Box<ASTNode<'a>>),
     BinaryOperation(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
@@ -32,8 +25,8 @@ pub enum ASTNode<'a> {
         Box<Type<'a>>,
         Box<ASTNode<'a>>,
     ),
-    FunctionCall(Box<ASTNode<'a>>, Vec<Box<ASTNode<'a>>>),
-    Block(Vec<Box<ASTNode<'a>>>),
+    FunctionCall(Box<ASTNode<'a>>, Vec<ASTNode<'a>>),
+    Block(Vec<ASTNode<'a>>),
 }
 
 // TODO: More complex types
@@ -56,7 +49,7 @@ Assignment := identifier = <Expr>
 IfExpr := if ( <Expr> ) <Block> (else <Block>)
 WhileExpr := while ( <Expr> ) <Block>
 Return := return <Expr>
---cut-- ForExpr := for (<Statement>*) (<Expr>) (<Statement>*) <Block>
+ForExpr := for <Statement>|<Block> (<Expr>) <Statement>|<Block> <Block>
 Expr := P1Expr
 P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
@@ -67,7 +60,7 @@ Value := <Constant> | '(' <Expr> ')' | identifier
 Constant := integer | floating_point | string | KeywordTrue | KeywordFalse
 */
 
-struct Parser<'a> {
+pub struct Parser<'a> {
     tokens: &'a [Token<'a>],
 }
 
@@ -133,14 +126,14 @@ impl<'a> Parser<'a> {
 
     fn parse_token_separated_list_of<T>(
         &mut self,
-        separator: TokenKind,
+        _separator: TokenKind,
         parser: fn(&mut Self) -> Option<T>,
     ) -> Option<Vec<T>> {
         let mut collected_parameters = vec![];
         if let Some(p) = parser(&mut *self) {
             collected_parameters.push(p);
             while let Some(p) = rewinding_if_none!(self, {
-                try_consume!(self.tokens, separator)?;
+                try_consume!(self.tokens, _separator)?;
                 parser(&mut *self)
             }) {
                 collected_parameters.push(p)
@@ -152,7 +145,7 @@ impl<'a> Parser<'a> {
     pub fn parse_program(&mut self) -> Option<Box<ASTNode<'a>>> {
         let mut collected_functions = vec![];
         while let Some(function) = self.parse_function_declaration() {
-            collected_functions.push(function);
+            collected_functions.push(*function);
         }
 
         Some(Box::new(ASTNode::Root(collected_functions)))
@@ -259,8 +252,9 @@ impl<'a> Parser<'a> {
         rewinding_if_none!(self, {
             let function = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
-            let arguments =
-                self.parse_token_separated_list_of(TokenKind::Comma, |myself| myself.parse_expr())?;
+            let arguments = self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
+                myself.parse_expr().map(|x| *x)
+            })?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             Some(Box::new(ASTNode::FunctionCall(function, arguments)))
         })
@@ -437,7 +431,7 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::OpenCurlyBracket)?;
             let mut statements = vec![];
             while let Some(s) = self.parse_statement() {
-                statements.push(s);
+                statements.push(*s);
             }
             try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
             Some(Box::new(ASTNode::Block(statements)))
@@ -551,8 +545,8 @@ mod tests {
             Some(Box::new(ASTNode::FunctionCall(
                 val(&tok(TokenKind::Identifier("myfunc"))),
                 vec![
-                    val(&tok(TokenKind::Integer(1))),
-                    val(&tok(TokenKind::Integer(2)))
+                    ASTNode::Value(&tok(TokenKind::Integer(1))),
+                    ASTNode::Value(&tok(TokenKind::Integer(2)))
                 ]
             )))
         );
@@ -1061,15 +1055,15 @@ mod tests {
         assert_eq!(
             parser.parse_block(),
             Some(Box::new(ASTNode::Block(vec![
-                Box::new(ASTNode::Assignment(
+                ASTNode::Assignment(
                     val(&tok(TokenKind::Identifier("x"))),
                     &tok(TokenKind::Equal),
                     val(&tok(TokenKind::Integer(1)))
-                )),
-                Box::new(ASTNode::LetDeclaration(
+                ),
+                ASTNode::LetDeclaration(
                     &tok(TokenKind::Identifier("y")),
                     val(&tok(TokenKind::Integer(2)))
-                ))
+                )
             ])))
         );
     }

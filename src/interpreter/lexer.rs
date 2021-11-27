@@ -1,24 +1,6 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 
-pub fn tokenize(source: &str) -> Result<Vec<Token>, Vec<LexerError>> {
-    let mut collected_tokens = vec![];
-    let mut collected_errors = vec![];
-    for token_or_error in Lexer::new(source) {
-        match token_or_error {
-            Err(error) => collected_errors.push(error),
-            Ok(token) if collected_errors.is_empty() => collected_tokens.push(token),
-            _ => {}
-        }
-    }
-
-    if collected_errors.is_empty() {
-        Ok(collected_tokens)
-    } else {
-        Err(collected_errors)
-    }
-}
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenKind<'a> {
     Integer(i64),
@@ -157,7 +139,8 @@ impl<'a> Iterator for Lexer<'a> {
             static ref FLOATING_POINT_REGEX: Regex = Regex::new(r#"^\d*\.\d+"#).unwrap();
             static ref INTEGER_REGEX: Regex = Regex::new(r#"^\d+"#).unwrap();
             static ref STRING_REGEX: Regex = Regex::new(r#"^"(\\"|[^"])*""#).unwrap();
-            static ref IDENTIFIER_REGEX: Regex = Regex::new(r#"^([a-zA-Z_][_a-zA-Z0-9]*)"#).unwrap();
+            static ref IDENTIFIER_REGEX: Regex =
+                Regex::new(r#"^([a-zA-Z_][_a-zA-Z0-9]*)"#).unwrap();
         }
 
         // NOTE: These needs to be ordered by descending length or it won't work

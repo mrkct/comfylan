@@ -1,0 +1,27 @@
+pub mod lexer;
+pub mod parser;
+
+pub fn tokenize(source: &str) -> Result<Vec<lexer::Token>, Vec<lexer::LexerError>> {
+    let mut collected_tokens = vec![];
+    let mut collected_errors = vec![];
+    for token_or_error in lexer::Lexer::new(source) {
+        match token_or_error {
+            Err(error) => collected_errors.push(error),
+            Ok(token) if collected_errors.is_empty() => collected_tokens.push(token),
+            _ => {}
+        }
+    }
+
+    if collected_errors.is_empty() {
+        Ok(collected_tokens)
+    } else {
+        Err(collected_errors)
+    }
+}
+
+pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Box<parser::ASTNode<'a>>, &'static str> {
+    match parser::Parser::new(tokens).parse_program() {
+        Some(ast) => Ok(ast),
+        None => Err("Parsing Error: I don't have any other info for you"),
+    }
+}
