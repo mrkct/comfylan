@@ -362,30 +362,19 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
-        let parse_name_colon_type = |me: &mut Self| {
-            rewinding_if_none!(me, {
-                let arg_name = try_consume!(me.tokens, TokenKind::Identifier(_))?;
-                try_consume!(me.tokens, TokenKind::Colon)?;
-                let arg_type = me.parse_type()?;
-                Some((arg_name, arg_type))
-            })
-        };
-
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFn)?;
             let function_name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
 
-            let mut collected_parameters = vec![];
-            if let Some((arg_name, arg_type)) = parse_name_colon_type(self) {
-                collected_parameters.push((arg_name, arg_type));
-                while let Some((arg_name, arg_type)) = rewinding_if_none!(self, {
-                    try_consume!(self.tokens, TokenKind::Comma)?;
-                    parse_name_colon_type(self)
-                }) {
-                    collected_parameters.push((arg_name, arg_type))
-                }
-            }
+            let collected_parameters =
+                self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
+                    let arg_name = try_consume!(myself.tokens, TokenKind::Identifier(_))?;
+                    try_consume!(myself.tokens, TokenKind::Colon)?;
+                    let arg_type = myself.parse_type()?;
+                    Some((arg_name, arg_type))
+                })?;
+
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             try_consume!(self.tokens, TokenKind::MinusGreaterThan)?;
             let return_type = self.parse_type()?;
