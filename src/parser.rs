@@ -401,6 +401,7 @@ impl<'a> Parser<'a> {
             Self::parse_var_declaration,
             Self::parse_assignment,
             Self::parse_return,
+            Self::parse_function_call,
         ];
         let block_terminated_statements = [
             Self::parse_block,
