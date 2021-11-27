@@ -15,7 +15,7 @@ pub enum ASTNode<'a> {
     BinaryOperation(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
     LetDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
     VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
-    Assignment(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
+    Assignment(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
     ArrayIndexing(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
     Return(Box<ASTNode<'a>>),
     If(Box<ASTNode<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
@@ -290,9 +290,16 @@ impl<'a> Parser<'a> {
         rewinding_if_none!(self, {
             // FIXME: Only a subset of expressions are valid lvalues
             let lvalue = self.parse_expr()?;
-            try_consume!(self.tokens, TokenKind::Equal)?;
+            let operator = try_consume!(
+                self.tokens,
+                TokenKind::Equal
+                    | TokenKind::PlusEqual
+                    | TokenKind::MinusEqual
+                    | TokenKind::StarEqual
+                    | TokenKind::SlashEqual
+            )?;
             let rvalue = self.parse_expr()?;
-            Some(Box::new(ASTNode::Assignment(lvalue, rvalue)))
+            Some(Box::new(ASTNode::Assignment(lvalue, operator, rvalue)))
         })
     }
 
@@ -893,6 +900,7 @@ mod tests {
             parser.parse_assignment(),
             Some(Box::new(ASTNode::Assignment(
                 val(&tok(TokenKind::Identifier("x"))),
+                &tok(TokenKind::Equal),
                 binop(
                     val(&tok(TokenKind::Identifier("x"))),
                     &tok(TokenKind::Plus),
@@ -916,6 +924,7 @@ mod tests {
             parser.parse_statement(),
             Some(Box::new(ASTNode::Assignment(
                 val(&tok(TokenKind::Identifier("x"))),
+                &tok(TokenKind::Equal),
                 val(&tok(TokenKind::Integer(1)))
             )))
         );
@@ -1053,6 +1062,7 @@ mod tests {
             Some(Box::new(ASTNode::Block(vec![
                 Box::new(ASTNode::Assignment(
                     val(&tok(TokenKind::Identifier("x"))),
+                    &tok(TokenKind::Equal),
                     val(&tok(TokenKind::Integer(1)))
                 )),
                 Box::new(ASTNode::LetDeclaration(
