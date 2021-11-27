@@ -32,6 +32,7 @@ pub enum ASTNode<'a> {
         Box<Type<'a>>,
         Box<ASTNode<'a>>,
     ),
+    FunctionCall(Box<ASTNode<'a>>, Vec<Box<ASTNode<'a>>>),
     Block(Vec<Box<ASTNode<'a>>>),
 }
 
@@ -130,6 +131,24 @@ impl<'a> Parser<'a> {
         Parser { tokens }
     }
 
+    fn parse_token_separated_list_of<T>(
+        &mut self,
+        separator: TokenKind,
+        parser: fn(&mut Self) -> Option<T>,
+    ) -> Option<Vec<T>> {
+        let mut collected_parameters = vec![];
+        if let Some(p) = parser(&mut *self) {
+            collected_parameters.push(p);
+            while let Some(p) = rewinding_if_none!(self, {
+                try_consume!(self.tokens, separator)?;
+                parser(&mut *self)
+            }) {
+                collected_parameters.push(p)
+            }
+        }
+        Some(collected_parameters)
+    }
+
     pub fn parse_program(&mut self) -> Option<Box<ASTNode<'a>>> {
         let mut collected_functions = vec![];
         while let Some(function) = self.parse_function_declaration() {
@@ -206,6 +225,7 @@ impl<'a> Parser<'a> {
         let parsing_methods = &[
             Self::parse_unary_minus,
             Self::parse_array_indexing,
+            Self::parse_function_call,
             Self::parse_value,
         ];
 
@@ -232,6 +252,17 @@ impl<'a> Parser<'a> {
             let index = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
             Some(Box::new(ASTNode::ArrayIndexing(indexable, index)))
+        })
+    }
+
+    fn parse_function_call(&mut self) -> Option<Box<ASTNode<'a>>> {
+        rewinding_if_none!(self, {
+            let function = self.parse_value()?;
+            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+            let arguments =
+                self.parse_token_separated_list_of(TokenKind::Comma, |myself| myself.parse_expr())?;
+            try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+            Some(Box::new(ASTNode::FunctionCall(function, arguments)))
         })
     }
 
@@ -506,6 +537,26 @@ mod tests {
             Some(Box::new(ASTNode::ArrayIndexing(
                 val(&tok(TokenKind::Identifier("values"))),
                 val(&tok(TokenKind::Integer(1)))
+            )))
+        );
+
+        let tokens = [
+            tok(TokenKind::Identifier("myfunc")),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Comma),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::CloseRoundBracket),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p5expr(),
+            Some(Box::new(ASTNode::FunctionCall(
+                val(&tok(TokenKind::Identifier("myfunc"))),
+                vec![
+                    val(&tok(TokenKind::Integer(1))),
+                    val(&tok(TokenKind::Integer(2)))
+                ]
             )))
         );
     }
