@@ -2,30 +2,37 @@ use super::lexer::{Token, TokenKind};
 
 #[derive(Debug, PartialEq)]
 pub enum ASTNode<'a> {
-    Value(&'a Token<'a>),
-    UnaryOperation(&'a Token<'a>, Box<ASTNode<'a>>),
-    BinaryOperation(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
-    LetDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<ASTNode<'a>>),
-    VarDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<ASTNode<'a>>),
-    Assignment(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
-    ArrayIndexing(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
-    Return(Box<ASTNode<'a>>),
-    If(Box<ASTNode<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
-    While(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
+    StatementExpr(Box<Expr<'a>>),
+    LetDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<Expr<'a>>),
+    VarDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<Expr<'a>>),
+    Assignment(Box<Expr<'a>>, &'a Token<'a>, Box<Expr<'a>>),
+    Return(Box<Expr<'a>>),
+    If(Box<Expr<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
+    While(Box<Expr<'a>>, Box<ASTNode<'a>>),
     For(
         Box<ASTNode<'a>>,
-        Box<ASTNode<'a>>,
+        Box<Expr<'a>>,
         Box<ASTNode<'a>>,
         Box<ASTNode<'a>>,
     ),
-    FunctionDeclaration(
-        &'a Token<'a>,
-        Vec<(&'a Token<'a>, Box<Type<'a>>)>,
-        Box<Type<'a>>,
-        Box<ASTNode<'a>>,
-    ),
-    FunctionCall(Box<ASTNode<'a>>, Vec<ASTNode<'a>>),
     Block(Vec<ASTNode<'a>>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct RootFunctionDeclaration<'a> {
+    name: &'a Token<'a>,
+    args: Vec<(&'a Token<'a>, Box<Type<'a>>)>,
+    return_type: Box<Type<'a>>,
+    content: Box<ASTNode<'a>>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Expr<'a> {
+    Value(&'a Token<'a>),
+    UnaryOperation(&'a Token<'a>, Box<Expr<'a>>),
+    BinaryOperation(Box<Expr<'a>>, &'a Token<'a>, Box<Expr<'a>>),
+    FunctionCall(Box<Expr<'a>>, Vec<Expr<'a>>),
+    ArrayIndexing(Box<Expr<'a>>, Box<Expr<'a>>),
 }
 
 // TODO: More complex types
@@ -96,10 +103,10 @@ macro_rules! rewinding_if_none {
 
 macro_rules! parse_expression_level {
     ($name:ident, $operators:pat, $lower_level_parse_method:ident) => {
-        fn $name(&mut self) -> Option<Box<ASTNode<'a>>> {
+        fn $name(&mut self) -> Option<Box<Expr<'a>>> {
             let first_value = self.$lower_level_parse_method()?;
 
-            let mut parse_operator_value = || -> Option<(&Token, Box<ASTNode>)> {
+            let mut parse_operator_value = || -> Option<(&Token, Box<Expr>)> {
                 rewinding_if_none!(self, {
                     let operator = try_consume!(self.tokens, $operators)?;
                     if let Some(value) = self.$lower_level_parse_method() {
@@ -111,7 +118,7 @@ macro_rules! parse_expression_level {
 
             let mut left = first_value;
             while let Some((operator, right)) = parse_operator_value() {
-                left = Box::new(ASTNode::BinaryOperation(left, operator, right));
+                left = Box::new(Expr::BinaryOperation(left, operator, right));
             }
             Some(left)
         }
@@ -141,20 +148,20 @@ impl<'a> Parser<'a> {
         Some(collected_parameters)
     }
 
-    pub fn parse_program(&mut self) -> Option<Vec<ASTNode<'a>>> {
+    pub fn parse_program(&mut self) -> Option<Vec<RootFunctionDeclaration<'a>>> {
         let mut collected_functions = vec![];
-        while let Some(function) = self.parse_function_declaration() {
-            collected_functions.push(*function);
+        while let Some(function) = self.parse_root_function_declaration() {
+            collected_functions.push(function);
         }
 
         Some(collected_functions)
     }
 
-    fn parse_value(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_value(&mut self) -> Option<Box<Expr<'a>>> {
         macro_rules! try_match_single_token_to_value {
             ($p:pat) => {
                 if let Some(token) = try_consume!(self.tokens, $p) {
-                    return Some(Box::new(ASTNode::Value(token)));
+                    return Some(Box::new(Expr::Value(token)));
                 }
             };
         }
@@ -180,7 +187,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_expr(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_expr(&mut self) -> Option<Box<Expr<'a>>> {
         self.parse_p1expr()
     }
 
@@ -213,7 +220,7 @@ impl<'a> Parser<'a> {
         parse_p5expr
     );
 
-    fn parse_p5expr(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_p5expr(&mut self) -> Option<Box<Expr<'a>>> {
         let parsing_methods = &[
             Self::parse_unary_minus,
             Self::parse_array_indexing,
@@ -229,25 +236,25 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_unary_minus(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_unary_minus(&mut self) -> Option<Box<Expr<'a>>> {
         rewinding_if_none!(self, {
             let operator = try_consume!(self.tokens, TokenKind::Minus)?;
             let value = self.parse_value()?;
-            Some(Box::new(ASTNode::UnaryOperation(operator, value)))
+            Some(Box::new(Expr::UnaryOperation(operator, value)))
         })
     }
 
-    fn parse_array_indexing(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_array_indexing(&mut self) -> Option<Box<Expr<'a>>> {
         rewinding_if_none!(self, {
             let indexable = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
             let index = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
-            Some(Box::new(ASTNode::ArrayIndexing(indexable, index)))
+            Some(Box::new(Expr::ArrayIndexing(indexable, index)))
         })
     }
 
-    fn parse_function_call(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_function_call(&mut self) -> Option<Box<Expr<'a>>> {
         rewinding_if_none!(self, {
             let function = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
@@ -255,7 +262,7 @@ impl<'a> Parser<'a> {
                 myself.parse_expr().map(|x| *x)
             })?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
-            Some(Box::new(ASTNode::FunctionCall(function, arguments)))
+            Some(Box::new(Expr::FunctionCall(function, arguments)))
         })
     }
 
@@ -365,7 +372,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_function_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_root_function_declaration(&mut self) -> Option<RootFunctionDeclaration<'a>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFn)?;
             let function_name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
@@ -383,13 +390,18 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::MinusGreaterThan)?;
             let return_type = self.parse_type()?;
             let function_code = self.parse_block()?;
-            Some(Box::new(ASTNode::FunctionDeclaration(
-                function_name,
-                collected_parameters,
-                return_type,
-                function_code,
-            )))
+            Some(RootFunctionDeclaration {
+                name: function_name,
+                args: collected_parameters,
+                return_type: return_type,
+                content: function_code,
+            })
         })
+    }
+
+    fn parse_statement_expr(&mut self) -> Option<Box<ASTNode<'a>>> {
+        let expr = self.parse_expr()?;
+        Some(Box::new(ASTNode::StatementExpr(expr)))
     }
 
     fn parse_statement(&mut self) -> Option<Box<ASTNode<'a>>> {
@@ -398,7 +410,7 @@ impl<'a> Parser<'a> {
             Self::parse_var_declaration,
             Self::parse_assignment,
             Self::parse_return,
-            Self::parse_function_call,
+            Self::parse_statement_expr,
         ];
         let block_terminated_statements = [
             Self::parse_block,
@@ -448,22 +460,18 @@ mod tests {
 
     fn tok(kind: TokenKind) -> Token {
         Token {
-            kind: kind,
+            kind,
             line: 0,
             column: 0,
         }
     }
 
-    fn binop<'a>(
-        left: Box<ASTNode<'a>>,
-        op: &'a Token<'a>,
-        right: Box<ASTNode<'a>>,
-    ) -> Box<ASTNode<'a>> {
-        Box::new(ASTNode::BinaryOperation(left, op, right))
+    fn binop<'a>(left: Box<Expr<'a>>, op: &'a Token<'a>, right: Box<Expr<'a>>) -> Box<Expr<'a>> {
+        Box::new(Expr::BinaryOperation(left, op, right))
     }
 
-    fn val<'a>(v: &'a Token<'a>) -> Box<ASTNode<'a>> {
-        Box::new(ASTNode::Value(v))
+    fn val<'a>(v: &'a Token<'a>) -> Box<Expr<'a>> {
+        Box::new(Expr::Value(v))
     }
 
     macro_rules! basetype {
@@ -513,7 +521,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(ASTNode::UnaryOperation(
+            Some(Box::new(Expr::UnaryOperation(
                 &tok(TokenKind::Minus),
                 val(&tok(TokenKind::Integer(1)))
             )))
@@ -528,7 +536,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(ASTNode::ArrayIndexing(
+            Some(Box::new(Expr::ArrayIndexing(
                 val(&tok(TokenKind::Identifier("values"))),
                 val(&tok(TokenKind::Integer(1)))
             )))
@@ -545,11 +553,11 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(ASTNode::FunctionCall(
+            Some(Box::new(Expr::FunctionCall(
                 val(&tok(TokenKind::Identifier("myfunc"))),
                 vec![
-                    ASTNode::Value(&tok(TokenKind::Integer(1))),
-                    ASTNode::Value(&tok(TokenKind::Integer(2)))
+                    Expr::Value(&tok(TokenKind::Integer(1))),
+                    Expr::Value(&tok(TokenKind::Integer(2)))
                 ]
             )))
         );
@@ -754,14 +762,14 @@ mod tests {
                                         val(&tok(TokenKind::Integer(5)))
                                     ),
                                     &tok(TokenKind::Star),
-                                    Box::new(ASTNode::UnaryOperation(
+                                    Box::new(Expr::UnaryOperation(
                                         &tok(TokenKind::Minus),
                                         val(&tok(TokenKind::Integer(1)))
                                     ))
                                 )
                             ),
                             &tok(TokenKind::Minus),
-                            Box::new(ASTNode::UnaryOperation(
+                            Box::new(Expr::UnaryOperation(
                                 &tok(TokenKind::Minus),
                                 val(&tok(TokenKind::Integer(2))),
                             ))
@@ -1125,17 +1133,17 @@ mod tests {
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            parser.parse_function_declaration(),
-            Some(Box::new(ASTNode::FunctionDeclaration(
-                &tok(TokenKind::Identifier("myfunc")),
-                vec![
+            parser.parse_root_function_declaration(),
+            Some(RootFunctionDeclaration {
+                name: &tok(TokenKind::Identifier("myfunc")),
+                args: vec![
                     (&tok(TokenKind::Identifier("arg1")), basetype!("u32")),
                     (&tok(TokenKind::Identifier("arg2")), basetype!("bool")),
                     (&tok(TokenKind::Identifier("arg3")), basetype!("str")),
                 ],
-                basetype!("ReturnType"),
-                Box::new(ASTNode::Block(vec![]))
-            )))
+                return_type: basetype!("ReturnType"),
+                content: Box::new(ASTNode::Block(vec![]))
+            })
         );
     }
 }
