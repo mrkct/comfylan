@@ -1,6 +1,5 @@
 pub mod lexer;
 pub mod parser;
-pub mod walker;
 
 pub fn tokenize(source: &str) -> Result<Vec<lexer::Token>, Vec<lexer::LexerError>> {
     let mut collected_tokens = vec![];

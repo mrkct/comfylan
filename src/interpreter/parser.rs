@@ -5,8 +5,8 @@ pub enum ASTNode<'a> {
     Value(&'a Token<'a>),
     UnaryOperation(&'a Token<'a>, Box<ASTNode<'a>>),
     BinaryOperation(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
-    LetDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
-    VarDeclaration(&'a Token<'a>, Box<ASTNode<'a>>),
+    LetDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<ASTNode<'a>>),
+    VarDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<ASTNode<'a>>),
     Assignment(Box<ASTNode<'a>>, &'a Token<'a>, Box<ASTNode<'a>>),
     ArrayIndexing(Box<ASTNode<'a>>, Box<ASTNode<'a>>),
     Return(Box<ASTNode<'a>>),
@@ -263,9 +263,11 @@ impl<'a> Parser<'a> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordLet)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            try_consume!(self.tokens, TokenKind::Colon)?;
+            let declared_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(ASTNode::LetDeclaration(name, expr)))
+            Some(Box::new(ASTNode::LetDeclaration(name, declared_type, expr)))
         })
     }
 
@@ -273,9 +275,11 @@ impl<'a> Parser<'a> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordVar)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            try_consume!(self.tokens, TokenKind::Colon)?;
+            let declared_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(ASTNode::VarDeclaration(name, expr)))
+            Some(Box::new(ASTNode::VarDeclaration(name, declared_type, expr)))
         })
     }
 
@@ -834,6 +838,8 @@ mod tests {
         let tokens = [
             tok(TokenKind::KeywordLet),
             tok(TokenKind::Identifier("myval")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("int")),
             tok(TokenKind::Equal),
             tok(TokenKind::Integer(1)),
             tok(TokenKind::Plus),
@@ -845,6 +851,7 @@ mod tests {
             parser.parse_let_declaration(),
             Some(Box::new(ASTNode::LetDeclaration(
                 &tok(TokenKind::Identifier("myval")),
+                Box::new(Type::Base(&tok(TokenKind::Identifier("int")))),
                 binop(
                     val(&tok(TokenKind::Integer(1))),
                     &tok(TokenKind::Plus),
@@ -859,6 +866,8 @@ mod tests {
         let tokens = [
             tok(TokenKind::KeywordVar),
             tok(TokenKind::Identifier("myval")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("int")),
             tok(TokenKind::Equal),
             tok(TokenKind::Integer(1)),
             tok(TokenKind::Plus),
@@ -870,6 +879,7 @@ mod tests {
             parser.parse_var_declaration(),
             Some(Box::new(ASTNode::VarDeclaration(
                 &tok(TokenKind::Identifier("myval")),
+                Box::new(Type::Base(&tok(TokenKind::Identifier("int")))),
                 binop(
                     val(&tok(TokenKind::Integer(1))),
                     &tok(TokenKind::Plus),
@@ -1043,6 +1053,8 @@ mod tests {
             // let y = 2;
             tok(TokenKind::KeywordLet),
             tok(TokenKind::Identifier("y")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("int")),
             tok(TokenKind::Equal),
             tok(TokenKind::Integer(2)),
             tok(TokenKind::SemiColon),
@@ -1061,6 +1073,7 @@ mod tests {
                 ),
                 ASTNode::LetDeclaration(
                     &tok(TokenKind::Identifier("y")),
+                    Box::new(Type::Base(&tok(TokenKind::Identifier("int")))),
                     val(&tok(TokenKind::Integer(2)))
                 )
             ])))
