@@ -1,45 +1,49 @@
 use super::lexer::{Token, TokenKind};
 
 #[derive(Debug, PartialEq)]
-pub enum ASTNode<'a> {
-    StatementExpr(Box<Expr<'a>>),
-    LetDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<Expr<'a>>),
-    VarDeclaration(&'a Token<'a>, Box<Type<'a>>, Box<Expr<'a>>),
-    Assignment(Box<Expr<'a>>, &'a Token<'a>, Box<Expr<'a>>),
-    Return(Box<Expr<'a>>),
-    If(Box<Expr<'a>>, Box<ASTNode<'a>>, Option<Box<ASTNode<'a>>>),
-    While(Box<Expr<'a>>, Box<ASTNode<'a>>),
-    For(
-        Box<ASTNode<'a>>,
-        Box<Expr<'a>>,
-        Box<ASTNode<'a>>,
-        Box<ASTNode<'a>>,
+pub enum ParsedStatement<'a> {
+    StatementExpr(Box<ParsedExpr<'a>>),
+    LetDeclaration(&'a Token<'a>, Box<ParsedType<'a>>, Box<ParsedExpr<'a>>),
+    VarDeclaration(&'a Token<'a>, Box<ParsedType<'a>>, Box<ParsedExpr<'a>>),
+    Assignment(Box<ParsedExpr<'a>>, &'a Token<'a>, Box<ParsedExpr<'a>>),
+    Return(Box<ParsedExpr<'a>>),
+    If(
+        Box<ParsedExpr<'a>>,
+        Box<ParsedStatement<'a>>,
+        Option<Box<ParsedStatement<'a>>>,
     ),
-    Block(Vec<ASTNode<'a>>),
+    While(Box<ParsedExpr<'a>>, Box<ParsedStatement<'a>>),
+    For(
+        Box<ParsedStatement<'a>>,
+        Box<ParsedExpr<'a>>,
+        Box<ParsedStatement<'a>>,
+        Box<ParsedStatement<'a>>,
+    ),
+    Block(Vec<ParsedStatement<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct RootFunctionDeclaration<'a> {
     name: &'a Token<'a>,
-    args: Vec<(&'a Token<'a>, Box<Type<'a>>)>,
-    return_type: Box<Type<'a>>,
-    content: Box<ASTNode<'a>>,
+    args: Vec<(&'a Token<'a>, Box<ParsedType<'a>>)>,
+    return_type: Box<ParsedType<'a>>,
+    content: Box<ParsedStatement<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Expr<'a> {
+pub enum ParsedExpr<'a> {
     Value(&'a Token<'a>),
-    UnaryOperation(&'a Token<'a>, Box<Expr<'a>>),
-    BinaryOperation(Box<Expr<'a>>, &'a Token<'a>, Box<Expr<'a>>),
-    FunctionCall(Box<Expr<'a>>, Vec<Expr<'a>>),
-    ArrayIndexing(Box<Expr<'a>>, Box<Expr<'a>>),
+    UnaryOperation(&'a Token<'a>, Box<ParsedExpr<'a>>),
+    BinaryOperation(Box<ParsedExpr<'a>>, &'a Token<'a>, Box<ParsedExpr<'a>>),
+    FunctionCall(Box<ParsedExpr<'a>>, Vec<ParsedExpr<'a>>),
+    ArrayIndexing(Box<ParsedExpr<'a>>, Box<ParsedExpr<'a>>),
 }
 
 // TODO: More complex types
 #[derive(Debug, PartialEq)]
-pub enum Type<'a> {
+pub enum ParsedType<'a> {
     Base(&'a Token<'a>),
-    Array(Box<Type<'a>>),
+    Array(Box<ParsedType<'a>>),
 }
 
 /*
@@ -103,10 +107,10 @@ macro_rules! rewinding_if_none {
 
 macro_rules! parse_expression_level {
     ($name:ident, $operators:pat, $lower_level_parse_method:ident) => {
-        fn $name(&mut self) -> Option<Box<Expr<'a>>> {
+        fn $name(&mut self) -> Option<Box<ParsedExpr<'a>>> {
             let first_value = self.$lower_level_parse_method()?;
 
-            let mut parse_operator_value = || -> Option<(&Token, Box<Expr>)> {
+            let mut parse_operator_value = || -> Option<(&Token, Box<ParsedExpr>)> {
                 rewinding_if_none!(self, {
                     let operator = try_consume!(self.tokens, $operators)?;
                     if let Some(value) = self.$lower_level_parse_method() {
@@ -118,7 +122,7 @@ macro_rules! parse_expression_level {
 
             let mut left = first_value;
             while let Some((operator, right)) = parse_operator_value() {
-                left = Box::new(Expr::BinaryOperation(left, operator, right));
+                left = Box::new(ParsedExpr::BinaryOperation(left, operator, right));
             }
             Some(left)
         }
@@ -157,11 +161,11 @@ impl<'a> Parser<'a> {
         Some(collected_functions)
     }
 
-    fn parse_value(&mut self) -> Option<Box<Expr<'a>>> {
+    fn parse_value(&mut self) -> Option<Box<ParsedExpr<'a>>> {
         macro_rules! try_match_single_token_to_value {
             ($p:pat) => {
                 if let Some(token) = try_consume!(self.tokens, $p) {
-                    return Some(Box::new(Expr::Value(token)));
+                    return Some(Box::new(ParsedExpr::Value(token)));
                 }
             };
         }
@@ -187,7 +191,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_expr(&mut self) -> Option<Box<Expr<'a>>> {
+    fn parse_expr(&mut self) -> Option<Box<ParsedExpr<'a>>> {
         self.parse_p1expr()
     }
 
@@ -220,7 +224,7 @@ impl<'a> Parser<'a> {
         parse_p5expr
     );
 
-    fn parse_p5expr(&mut self) -> Option<Box<Expr<'a>>> {
+    fn parse_p5expr(&mut self) -> Option<Box<ParsedExpr<'a>>> {
         let parsing_methods = &[
             Self::parse_unary_minus,
             Self::parse_array_indexing,
@@ -236,25 +240,25 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_unary_minus(&mut self) -> Option<Box<Expr<'a>>> {
+    fn parse_unary_minus(&mut self) -> Option<Box<ParsedExpr<'a>>> {
         rewinding_if_none!(self, {
             let operator = try_consume!(self.tokens, TokenKind::Minus)?;
             let value = self.parse_value()?;
-            Some(Box::new(Expr::UnaryOperation(operator, value)))
+            Some(Box::new(ParsedExpr::UnaryOperation(operator, value)))
         })
     }
 
-    fn parse_array_indexing(&mut self) -> Option<Box<Expr<'a>>> {
+    fn parse_array_indexing(&mut self) -> Option<Box<ParsedExpr<'a>>> {
         rewinding_if_none!(self, {
             let indexable = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
             let index = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
-            Some(Box::new(Expr::ArrayIndexing(indexable, index)))
+            Some(Box::new(ParsedExpr::ArrayIndexing(indexable, index)))
         })
     }
 
-    fn parse_function_call(&mut self) -> Option<Box<Expr<'a>>> {
+    fn parse_function_call(&mut self) -> Option<Box<ParsedExpr<'a>>> {
         rewinding_if_none!(self, {
             let function = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
@@ -262,11 +266,11 @@ impl<'a> Parser<'a> {
                 myself.parse_expr().map(|x| *x)
             })?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
-            Some(Box::new(Expr::FunctionCall(function, arguments)))
+            Some(Box::new(ParsedExpr::FunctionCall(function, arguments)))
         })
     }
 
-    fn parse_let_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_let_declaration(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordLet)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
@@ -274,11 +278,15 @@ impl<'a> Parser<'a> {
             let declared_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(ASTNode::LetDeclaration(name, declared_type, expr)))
+            Some(Box::new(ParsedStatement::LetDeclaration(
+                name,
+                declared_type,
+                expr,
+            )))
         })
     }
 
-    fn parse_var_declaration(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_var_declaration(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordVar)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
@@ -286,11 +294,15 @@ impl<'a> Parser<'a> {
             let declared_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(ASTNode::VarDeclaration(name, declared_type, expr)))
+            Some(Box::new(ParsedStatement::VarDeclaration(
+                name,
+                declared_type,
+                expr,
+            )))
         })
     }
 
-    fn parse_assignment(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_assignment(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             // FIXME: Only a subset of expressions are valid lvalues
             let lvalue = self.parse_expr()?;
@@ -303,11 +315,13 @@ impl<'a> Parser<'a> {
                     | TokenKind::SlashEqual
             )?;
             let rvalue = self.parse_expr()?;
-            Some(Box::new(ASTNode::Assignment(lvalue, operator, rvalue)))
+            Some(Box::new(ParsedStatement::Assignment(
+                lvalue, operator, rvalue,
+            )))
         })
     }
 
-    fn parse_if(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_if(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordIf)?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
@@ -315,10 +329,10 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             let true_branch = self.parse_block()?;
             match try_consume!(self.tokens, TokenKind::KeywordElse) {
-                None => Some(Box::new(ASTNode::If(condition, true_branch, None))),
+                None => Some(Box::new(ParsedStatement::If(condition, true_branch, None))),
                 _ => {
                     let false_branch = self.parse_block()?;
-                    Some(Box::new(ASTNode::If(
+                    Some(Box::new(ParsedStatement::If(
                         condition,
                         true_branch,
                         Some(false_branch),
@@ -328,47 +342,49 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_while(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_while(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordWhile)?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
             let condition = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             let loop_block = self.parse_block()?;
-            Some(Box::new(ASTNode::While(condition, loop_block)))
+            Some(Box::new(ParsedStatement::While(condition, loop_block)))
         })
     }
 
-    fn parse_for(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_for(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFor)?;
             let pre = self.parse_block()?;
             let condition = self.parse_expr()?;
             let post = self.parse_block()?;
             let loop_block = self.parse_block()?;
-            Some(Box::new(ASTNode::For(pre, condition, post, loop_block)))
+            Some(Box::new(ParsedStatement::For(
+                pre, condition, post, loop_block,
+            )))
         })
     }
 
-    fn parse_return(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_return(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordReturn)?;
             let expression = self.parse_expr()?;
-            Some(Box::new(ASTNode::Return(expression)))
+            Some(Box::new(ParsedStatement::Return(expression)))
         })
     }
 
-    fn parse_type(&mut self) -> Option<Box<Type<'a>>> {
+    fn parse_type(&mut self) -> Option<Box<ParsedType<'a>>> {
         if let Some(array_of_type) = rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
             let inner_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
-            Some(Box::new(Type::Array(inner_type)))
+            Some(Box::new(ParsedType::Array(inner_type)))
         }) {
             Some(array_of_type)
         } else {
             let base_type = try_consume!(self.tokens, TokenKind::Identifier(_))?;
-            Some(Box::new(Type::Base(base_type)))
+            Some(Box::new(ParsedType::Base(base_type)))
         }
     }
 
@@ -393,18 +409,18 @@ impl<'a> Parser<'a> {
             Some(RootFunctionDeclaration {
                 name: function_name,
                 args: collected_parameters,
-                return_type: return_type,
+                return_type,
                 content: function_code,
             })
         })
     }
 
-    fn parse_statement_expr(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_statement_expr(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         let expr = self.parse_expr()?;
-        Some(Box::new(ASTNode::StatementExpr(expr)))
+        Some(Box::new(ParsedStatement::StatementExpr(expr)))
     }
 
-    fn parse_statement(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_statement(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         let semicolon_terminated_statements = [
             Self::parse_let_declaration,
             Self::parse_var_declaration,
@@ -441,7 +457,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_block(&mut self) -> Option<Box<ASTNode<'a>>> {
+    fn parse_block(&mut self) -> Option<Box<ParsedStatement<'a>>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::OpenCurlyBracket)?;
             let mut statements = vec![];
@@ -449,7 +465,7 @@ impl<'a> Parser<'a> {
                 statements.push(*s);
             }
             try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
-            Some(Box::new(ASTNode::Block(statements)))
+            Some(Box::new(ParsedStatement::Block(statements)))
         })
     }
 }
@@ -466,17 +482,21 @@ mod tests {
         }
     }
 
-    fn binop<'a>(left: Box<Expr<'a>>, op: &'a Token<'a>, right: Box<Expr<'a>>) -> Box<Expr<'a>> {
-        Box::new(Expr::BinaryOperation(left, op, right))
+    fn binop<'a>(
+        left: Box<ParsedExpr<'a>>,
+        op: &'a Token<'a>,
+        right: Box<ParsedExpr<'a>>,
+    ) -> Box<ParsedExpr<'a>> {
+        Box::new(ParsedExpr::BinaryOperation(left, op, right))
     }
 
-    fn val<'a>(v: &'a Token<'a>) -> Box<Expr<'a>> {
-        Box::new(Expr::Value(v))
+    fn val<'a>(v: &'a Token<'a>) -> Box<ParsedExpr<'a>> {
+        Box::new(ParsedExpr::Value(v))
     }
 
     macro_rules! basetype {
         ($val:expr) => {
-            Box::new(Type::Base(&tok(TokenKind::Identifier($val))))
+            Box::new(ParsedType::Base(&tok(TokenKind::Identifier($val))))
         };
     }
 
@@ -521,7 +541,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(Expr::UnaryOperation(
+            Some(Box::new(ParsedExpr::UnaryOperation(
                 &tok(TokenKind::Minus),
                 val(&tok(TokenKind::Integer(1)))
             )))
@@ -536,7 +556,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(Expr::ArrayIndexing(
+            Some(Box::new(ParsedExpr::ArrayIndexing(
                 val(&tok(TokenKind::Identifier("values"))),
                 val(&tok(TokenKind::Integer(1)))
             )))
@@ -553,11 +573,11 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(Expr::FunctionCall(
+            Some(Box::new(ParsedExpr::FunctionCall(
                 val(&tok(TokenKind::Identifier("myfunc"))),
                 vec![
-                    Expr::Value(&tok(TokenKind::Integer(1))),
-                    Expr::Value(&tok(TokenKind::Integer(2)))
+                    ParsedExpr::Value(&tok(TokenKind::Integer(1))),
+                    ParsedExpr::Value(&tok(TokenKind::Integer(2)))
                 ]
             )))
         );
@@ -762,14 +782,14 @@ mod tests {
                                         val(&tok(TokenKind::Integer(5)))
                                     ),
                                     &tok(TokenKind::Star),
-                                    Box::new(Expr::UnaryOperation(
+                                    Box::new(ParsedExpr::UnaryOperation(
                                         &tok(TokenKind::Minus),
                                         val(&tok(TokenKind::Integer(1)))
                                     ))
                                 )
                             ),
                             &tok(TokenKind::Minus),
-                            Box::new(Expr::UnaryOperation(
+                            Box::new(ParsedExpr::UnaryOperation(
                                 &tok(TokenKind::Minus),
                                 val(&tok(TokenKind::Integer(2))),
                             ))
@@ -857,9 +877,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_let_declaration(),
-            Some(Box::new(ASTNode::LetDeclaration(
+            Some(Box::new(ParsedStatement::LetDeclaration(
                 &tok(TokenKind::Identifier("myval")),
-                Box::new(Type::Base(&tok(TokenKind::Identifier("int")))),
+                Box::new(ParsedType::Base(&tok(TokenKind::Identifier("int")))),
                 binop(
                     val(&tok(TokenKind::Integer(1))),
                     &tok(TokenKind::Plus),
@@ -885,9 +905,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_var_declaration(),
-            Some(Box::new(ASTNode::VarDeclaration(
+            Some(Box::new(ParsedStatement::VarDeclaration(
                 &tok(TokenKind::Identifier("myval")),
-                Box::new(Type::Base(&tok(TokenKind::Identifier("int")))),
+                Box::new(ParsedType::Base(&tok(TokenKind::Identifier("int")))),
                 binop(
                     val(&tok(TokenKind::Integer(1))),
                     &tok(TokenKind::Plus),
@@ -910,7 +930,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_assignment(),
-            Some(Box::new(ASTNode::Assignment(
+            Some(Box::new(ParsedStatement::Assignment(
                 val(&tok(TokenKind::Identifier("x"))),
                 &tok(TokenKind::Equal),
                 binop(
@@ -934,7 +954,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_statement(),
-            Some(Box::new(ASTNode::Assignment(
+            Some(Box::new(ParsedStatement::Assignment(
                 val(&tok(TokenKind::Identifier("x"))),
                 &tok(TokenKind::Equal),
                 val(&tok(TokenKind::Integer(1)))
@@ -959,10 +979,10 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
-            Some(Box::new(ASTNode::If(
+            Some(Box::new(ParsedStatement::If(
                 val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ASTNode::Block(vec![])),
-                Some(Box::new(ASTNode::Block(vec![])))
+                Box::new(ParsedStatement::Block(vec![])),
+                Some(Box::new(ParsedStatement::Block(vec![])))
             )))
         );
     }
@@ -981,9 +1001,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
-            Some(Box::new(ASTNode::If(
+            Some(Box::new(ParsedStatement::If(
                 val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ASTNode::Block(vec![])),
+                Box::new(ParsedStatement::Block(vec![])),
                 None
             )))
         );
@@ -1003,9 +1023,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_while(),
-            Some(Box::new(ASTNode::While(
+            Some(Box::new(ParsedStatement::While(
                 val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ASTNode::Block(vec![]))
+                Box::new(ParsedStatement::Block(vec![]))
             )))
         );
     }
@@ -1028,11 +1048,11 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_for(),
-            Some(Box::new(ASTNode::For(
-                Box::new(ASTNode::Block(vec![])),
+            Some(Box::new(ParsedStatement::For(
+                Box::new(ParsedStatement::Block(vec![])),
                 val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ASTNode::Block(vec![])),
-                Box::new(ASTNode::Block(vec![])),
+                Box::new(ParsedStatement::Block(vec![])),
+                Box::new(ParsedStatement::Block(vec![])),
             )))
         );
     }
@@ -1044,7 +1064,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_return(),
-            Some(Box::new(ASTNode::Return(val(&tok(TokenKind::Integer(1))),)))
+            Some(Box::new(ParsedStatement::Return(val(&tok(
+                TokenKind::Integer(1)
+            )),)))
         );
     }
 
@@ -1073,15 +1095,15 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_block(),
-            Some(Box::new(ASTNode::Block(vec![
-                ASTNode::Assignment(
+            Some(Box::new(ParsedStatement::Block(vec![
+                ParsedStatement::Assignment(
                     val(&tok(TokenKind::Identifier("x"))),
                     &tok(TokenKind::Equal),
                     val(&tok(TokenKind::Integer(1)))
                 ),
-                ASTNode::LetDeclaration(
+                ParsedStatement::LetDeclaration(
                     &tok(TokenKind::Identifier("y")),
-                    Box::new(Type::Base(&tok(TokenKind::Identifier("int")))),
+                    Box::new(ParsedType::Base(&tok(TokenKind::Identifier("int")))),
                     val(&tok(TokenKind::Integer(2)))
                 )
             ])))
@@ -1101,9 +1123,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_type(),
-            Some(Box::new(Type::Array(Box::new(Type::Array(basetype!(
-                "int"
-            ))))))
+            Some(Box::new(ParsedType::Array(Box::new(ParsedType::Array(
+                basetype!("int")
+            )))))
         );
     }
 
@@ -1142,7 +1164,7 @@ mod tests {
                     (&tok(TokenKind::Identifier("arg3")), basetype!("str")),
                 ],
                 return_type: basetype!("ReturnType"),
-                content: Box::new(ASTNode::Block(vec![]))
+                content: Box::new(ParsedStatement::Block(vec![]))
             })
         );
     }
