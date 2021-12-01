@@ -2,7 +2,7 @@ use interpreter::lexer::LexerError;
 
 mod interpreter;
 
-fn print_lexer_errors(errors: &Vec<LexerError>) {
+fn print_lexer_errors(errors: &[LexerError]) {
     for lexer_error in errors {
         match lexer_error.error {
             interpreter::lexer::ErrorType::UnrecognizedToken(bad_token) => {
