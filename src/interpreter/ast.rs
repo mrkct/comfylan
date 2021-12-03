@@ -8,7 +8,7 @@ pub enum ImmediateValue {
     FloatingPoint(f64),
     String(String),
     Boolean(bool),
-    Closure(Rc<Env<ImmediateValue>>, Vec<String>),
+    Closure(Rc<Env<ImmediateValue>>, Vec<String>, Box<Statement>),
     Array(Type, Vec<ImmediateValue>),
 }
 
@@ -24,6 +24,7 @@ impl ImmediateValue {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Value(ImmediateValue),
     Identifier(String),
@@ -46,6 +47,7 @@ pub enum Expression {
     ArrayIndexing(Box<Expression>, Box<Expression>),
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
     Declaration(String, bool, Box<Expression>),
     Assignment(Box<Expression>, Box<Expression>),
@@ -308,6 +310,24 @@ impl Expression {
                     value.get_type(),
                 ))),
             },
+            Expression::FunctionCall(function, args) => match function.eval(env) {
+                Ok(ImmediateValue::Closure(closure_env, args_names, statements)) => {
+                    let function_context_env = Env::create_child(&closure_env);
+                    for (argname, argexpr) in args_names.iter().zip(args.iter()) {
+                        let argvalue = argexpr.eval(env)?;
+                        print!("{}:{:?}", argname, argvalue);
+                        function_context_env.declare(argname, argvalue, false);
+                    }
+                    statements
+                        .eval(&function_context_env)
+                        .map(|v| v.expect("Function returning void was used in an expression"))
+                }
+                Ok(value) => Err(EvaluationError::InternalTypecheckingError(format!(
+                    "Cannot use a value of type {:?} as a function",
+                    value.get_type()
+                ))),
+                error => error,
+            },
             Expression::Identifier(name) => match env.lookup(name) {
                 Some(value) => Ok(value),
                 None => Err(EvaluationError::SymbolNotFound(name.to_string())),
@@ -561,5 +581,58 @@ mod tests {
         ]);
         let env = Env::root_env(&[]);
         assert_eq!(program.eval(&env), Ok(Some(ImmediateValue::Integer(45))));
+    }
+
+    #[test]
+    fn simple_function_call() {
+        let env = Env::root_env(&[]);
+        let function = Box::new(Statement::Block(vec![Statement::Return(Box::new(
+            Expression::Add(ident("x"), intval(1)),
+        ))]));
+        env.declare(
+            "add_one",
+            ImmediateValue::Closure(Rc::clone(&env), vec!["x".to_string()], function),
+            true,
+        );
+        let program = Statement::Declaration(
+            "result".to_string(),
+            true,
+            Box::new(Expression::FunctionCall(ident("add_one"), vec![intval(2)])),
+        );
+
+        assert_eq!(program.eval(&env), Ok(None));
+        assert_eq!(env.lookup("result"), Some(ImmediateValue::Integer(3)));
+    }
+
+    #[test]
+    fn recursive_factorial_function_call() {
+        let env = Env::root_env(&[]);
+        let function = Box::new(Statement::Block(vec![Statement::If(
+            Box::new(Expression::Equal(ident("x"), intval(0))),
+            Box::new(Statement::Return(intval(1))),
+            Some(Box::new(Statement::Return(Box::new(Expression::Mul(
+                Box::new(Expression::FunctionCall(
+                    ident("factorial"),
+                    vec![Box::new(Expression::Sub(ident("x"), intval(1)))],
+                )),
+                ident("x"),
+            ))))),
+        )]));
+        env.declare(
+            "factorial",
+            ImmediateValue::Closure(Rc::clone(&env), vec!["x".to_string()], function),
+            true,
+        );
+        let program = Statement::Declaration(
+            "result".to_string(),
+            true,
+            Box::new(Expression::FunctionCall(
+                ident("factorial"),
+                vec![intval(7)],
+            )),
+        );
+
+        assert_eq!(program.eval(&env), Ok(None));
+        assert_eq!(env.lookup("result"), Some(ImmediateValue::Integer(5040)));
     }
 }
