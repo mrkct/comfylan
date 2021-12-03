@@ -19,6 +19,7 @@ impl ImmediateValue {
             ImmediateValue::FloatingPoint(_) => Type::FloatingPoint,
             ImmediateValue::String(_) => Type::String,
             ImmediateValue::Boolean(_) => Type::Boolean,
+            ImmediateValue::Array(array_type, _) => Type::Array(Box::new(array_type.clone())),
             _ => panic!("not implemented"),
         }
     }
@@ -70,6 +71,8 @@ pub enum EvaluationError {
     SymbolNotFound(String),
     DivisionByZero,
     EnvironmentError(EnvError),
+    NotAnLValue,
+    ArrayIndexOutOfBounds,
     NotImplemented,
 }
 
@@ -332,15 +335,39 @@ impl Expression {
                 Some(value) => Ok(value),
                 None => Err(EvaluationError::SymbolNotFound(name.to_string())),
             },
+            Expression::ArrayIndexing(array, index) => match (array.eval(env), index.eval(env)) {
+                (Ok(ImmediateValue::Array(_, array)), Ok(ImmediateValue::Integer(index))) => {
+                    if let Some(value) = array.get(index as usize) {
+                        Ok(value.clone())
+                    } else {
+                        Err(EvaluationError::ArrayIndexOutOfBounds)
+                    }
+                }
+                (Ok(not_an_array), Ok(_)) => {
+                    Err(EvaluationError::InternalTypecheckingError(format!(
+                        "Cannot apply array indexing to a value of type {:?}",
+                        not_an_array.get_type()
+                    )))
+                }
+                (Err(e), _) | (_, Err(e)) => Err(e),
+            },
             _ => Err(EvaluationError::NotImplemented),
         }
     }
 
-    pub fn is_lvalue(&self) -> bool {
-        matches!(
-            self,
-            Expression::Identifier(_) | Expression::ArrayIndexing(_, _)
-        )
+    pub fn eval_to_lvalue(&self, env: &Env<ImmediateValue>) -> Result<Expression, EvaluationError> {
+        match self {
+            e @ Expression::Identifier(_) => Ok(e.clone()),
+            Expression::ArrayIndexing(array, index) => {
+                let array = array.eval(env)?;
+                let index = index.eval(env)?;
+                Ok(Expression::ArrayIndexing(
+                    Box::new(Expression::Value(array)),
+                    Box::new(Expression::Value(index)),
+                ))
+            }
+            _ => Err(EvaluationError::NotAnLValue),
+        }
     }
 }
 
@@ -559,6 +586,40 @@ mod tests {
         ));
         let env = Env::root_env(&[]);
         assert_eq!(e.eval(&env), Ok(ImmediateValue::Boolean(true)));
+    }
+
+    #[test]
+    fn array_indexing() {
+        let e = Expression::ArrayIndexing(
+            Box::new(Expression::Value(ImmediateValue::Array(
+                Type::Integer,
+                vec![
+                    ImmediateValue::Integer(7),
+                    ImmediateValue::Integer(8),
+                    ImmediateValue::Integer(9),
+                ],
+            ))),
+            intval(2),
+        );
+        let env = Env::root_env(&[]);
+        assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(9)));
+    }
+
+    #[test]
+    fn array_indexing_out_of_bounds() {
+        let e = Expression::ArrayIndexing(
+            Box::new(Expression::Value(ImmediateValue::Array(
+                Type::Integer,
+                vec![
+                    ImmediateValue::Integer(7),
+                    ImmediateValue::Integer(8),
+                    ImmediateValue::Integer(9),
+                ],
+            ))),
+            intval(3),
+        );
+        let env = Env::root_env(&[]);
+        assert_eq!(e.eval(&env), Err(EvaluationError::ArrayIndexOutOfBounds));
     }
 
     #[test]
