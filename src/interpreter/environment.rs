@@ -7,6 +7,7 @@ pub struct Env<T: Clone> {
     parent_env: Option<Rc<Env<T>>>,
 }
 
+// FIXME: This becomes impossible to enforce with lookup returning a ref
 #[derive(Debug, PartialEq)]
 struct ValueInfo<T: Clone> {
     immutable: bool,
@@ -64,17 +65,26 @@ impl<T: Clone> Env<T> {
         }
     }
 
-    pub fn lookup(&self, symbol: &str) -> Option<T> {
-        // FIXME: It's unfortunate having to clone every value we lookup
+    pub fn lookup<U>(&self, symbol: &str, f: fn(Option<&T>) -> U) -> U {
+        let borrowed_map = self.symbols.borrow();
+        match (borrowed_map.get(symbol), self.parent_env.as_ref()) {
+            (Some(value_info), _) => f(Some(&value_info.value)),
+            (None, Some(parent)) => parent.lookup(symbol, f),
+            (None, None) => f(None),
+        }
+    }
 
-        self.symbols
-            .borrow()
-            .get(symbol)
-            .map(|value_info| value_info.value.clone())
-            .or_else(|| match &self.parent_env {
-                Some(parent) => parent.lookup(symbol),
-                None => None,
-            })
+    pub fn lookup_mut<U>(&self, symbol: &str, f: fn(Option<&mut T>) -> U) -> U {
+        let mut borrowed_map = self.symbols.borrow_mut();
+        match (borrowed_map.get_mut(symbol), self.parent_env.as_ref()) {
+            (Some(value_info), _) => f(Some(&mut value_info.value)),
+            (None, Some(parent)) => parent.lookup_mut(symbol, f),
+            (None, None) => f(None),
+        }
+    }
+
+    pub fn cloning_lookup(&self, symbol: &str) -> Option<T> {
+        self.lookup(symbol, |value| value.cloned())
     }
 }
 
@@ -86,7 +96,7 @@ mod tests {
     fn declare_and_lookup() {
         let env = Env::base_env();
         let _ = env.declare("myval", 1, false);
-        assert_eq!(env.lookup("myval"), Some(1));
+        assert_eq!(env.cloning_lookup("myval"), Some(1));
     }
 
     #[test]
@@ -94,7 +104,7 @@ mod tests {
         let parent = Env::base_env();
         let _ = parent.declare("myval", 1, false);
         let child = Env::create_child(&parent);
-        assert_eq!(child.lookup("myval"), Some(1));
+        assert_eq!(child.cloning_lookup("myval"), Some(1));
     }
 
     #[test]
@@ -103,7 +113,7 @@ mod tests {
         let _ = parent.declare("myval", 1, false);
         let child = Env::create_child(&parent);
         let _ = child.assign("myval", 2);
-        assert_eq!(parent.lookup("myval"), Some(2));
+        assert_eq!(parent.cloning_lookup("myval"), Some(2));
     }
 
     #[test]
@@ -111,7 +121,7 @@ mod tests {
         let parent = Env::base_env();
         let child = Env::create_child(&parent);
         let _ = child.declare("myval", 1, false);
-        assert_eq!(parent.lookup("myval"), None);
+        assert_eq!(parent.cloning_lookup("myval"), None);
     }
 
     #[test]
@@ -120,8 +130,8 @@ mod tests {
         let _ = parent.declare("myval", 1, true);
         let child = Env::create_child(&parent);
         let _ = child.declare("myval", 2, false);
-        assert_eq!(parent.lookup("myval"), Some(1));
-        assert_eq!(child.lookup("myval"), Some(2));
+        assert_eq!(parent.cloning_lookup("myval"), Some(1));
+        assert_eq!(child.cloning_lookup("myval"), Some(2));
     }
 
     #[test]
@@ -141,5 +151,13 @@ mod tests {
             parent.assign("undeclared", 1),
             Err(EnvError::SymbolNotFound("undeclared".to_string()))
         );
+    }
+
+    #[test]
+    fn assign_through_lookup_as_ref() {
+        let parent = Env::base_env();
+        parent.declare("hello", 1, true);
+        parent.lookup_mut("hello", |v| *v.unwrap() = 77);
+        assert_eq!(parent.cloning_lookup("hello"), Some(77));
     }
 }
