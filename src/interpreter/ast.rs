@@ -99,6 +99,18 @@ pub enum Statement {
     Block(SourceInfo, Vec<Statement>),
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum TopLevelDeclaration {
+    Function(
+        SourceInfo,
+        Option<Type>,
+        String,
+        Vec<(String, Type)>,
+        Type,
+        Statement,
+    ),
+}
+
 impl ImmediateValue {
     pub fn get_type(&self) -> Type {
         match self {

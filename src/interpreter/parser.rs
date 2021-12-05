@@ -1,50 +1,14 @@
-use super::lexer::{Token, TokenKind};
+use crate::interpreter::{
+    ast::*,
+    lexer::{Token, TokenKind},
+    typechecking::Type,
+};
 
-#[derive(Debug, PartialEq)]
-pub enum ParsedStatement<'a> {
-    StatementExpr(Box<ParsedExpr<'a>>),
-    LetDeclaration(&'a Token<'a>, Box<ParsedType<'a>>, Box<ParsedExpr<'a>>),
-    VarDeclaration(&'a Token<'a>, Box<ParsedType<'a>>, Box<ParsedExpr<'a>>),
-    Assignment(Box<ParsedExpr<'a>>, &'a Token<'a>, Box<ParsedExpr<'a>>),
-    Return(Box<ParsedExpr<'a>>),
-    If(
-        Box<ParsedExpr<'a>>,
-        Box<ParsedStatement<'a>>,
-        Option<Box<ParsedStatement<'a>>>,
-    ),
-    While(Box<ParsedExpr<'a>>, Box<ParsedStatement<'a>>),
-    For(
-        Box<ParsedStatement<'a>>,
-        Box<ParsedExpr<'a>>,
-        Box<ParsedStatement<'a>>,
-        Box<ParsedStatement<'a>>,
-    ),
-    Block(Vec<ParsedStatement<'a>>),
-}
-
-#[derive(Debug, PartialEq)]
-pub struct RootFunctionDeclaration<'a> {
-    name: &'a Token<'a>,
-    args: Vec<(&'a Token<'a>, Box<ParsedType<'a>>)>,
-    return_type: Box<ParsedType<'a>>,
-    content: Box<ParsedStatement<'a>>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ParsedExpr<'a> {
-    Value(&'a Token<'a>),
-    UnaryOperation(&'a Token<'a>, Box<ParsedExpr<'a>>),
-    BinaryOperation(Box<ParsedExpr<'a>>, &'a Token<'a>, Box<ParsedExpr<'a>>),
-    FunctionCall(Box<ParsedExpr<'a>>, Vec<ParsedExpr<'a>>),
-    ArrayIndexing(Box<ParsedExpr<'a>>, Box<ParsedExpr<'a>>),
-}
-
-// TODO: More complex types
-#[derive(Debug, PartialEq)]
-pub enum ParsedType<'a> {
-    Base(&'a Token<'a>),
-    Array(Box<ParsedType<'a>>),
-}
+const TODO_INFO: SourceInfo = SourceInfo {
+    line: 0,
+    column: 0,
+    offset_in_source: 0,
+};
 
 /*
 Program := (<Function>|<Type-Declaration>)*
@@ -107,10 +71,10 @@ macro_rules! rewinding_if_none {
 
 macro_rules! parse_expression_level {
     ($name:ident, $operators:pat, $lower_level_parse_method:ident) => {
-        fn $name(&mut self) -> Option<Box<ParsedExpr<'a>>> {
+        fn $name(&mut self) -> Option<Box<Expression>> {
             let first_value = self.$lower_level_parse_method()?;
 
-            let mut parse_operator_value = || -> Option<(&Token, Box<ParsedExpr>)> {
+            let mut parse_operator_value = || -> Option<(&Token, Box<Expression>)> {
                 rewinding_if_none!(self, {
                     let operator = try_consume!(self.tokens, $operators)?;
                     if let Some(value) = self.$lower_level_parse_method() {
@@ -122,7 +86,13 @@ macro_rules! parse_expression_level {
 
             let mut left = first_value;
             while let Some((operator, right)) = parse_operator_value() {
-                left = Box::new(ParsedExpr::BinaryOperation(left, operator, right));
+                left = Box::new(Expression::BinaryOperation(
+                    TODO_INFO,
+                    None,
+                    left,
+                    operator.as_binary_operator(),
+                    right,
+                ));
             }
             Some(left)
         }
@@ -152,7 +122,7 @@ impl<'a> Parser<'a> {
         Some(collected_parameters)
     }
 
-    pub fn parse_program(&mut self) -> Option<Vec<RootFunctionDeclaration<'a>>> {
+    pub fn parse_program(&mut self) -> Option<Vec<TopLevelDeclaration>> {
         let mut collected_functions = vec![];
         while let Some(function) = self.parse_root_function_declaration() {
             collected_functions.push(function);
@@ -161,22 +131,28 @@ impl<'a> Parser<'a> {
         Some(collected_functions)
     }
 
-    fn parse_value(&mut self) -> Option<Box<ParsedExpr<'a>>> {
-        macro_rules! try_match_single_token_to_value {
+    fn parse_value(&mut self) -> Option<Box<Expression>> {
+        macro_rules! try_match_single_token_to_immediate_value {
             ($p:pat) => {
                 if let Some(token) = try_consume!(self.tokens, $p) {
-                    return Some(Box::new(ParsedExpr::Value(token)));
+                    return Some(Box::new(Expression::Value(token.as_immediate_value())));
                 }
             };
         }
 
         rewinding_if_none!(self, {
-            try_match_single_token_to_value!(TokenKind::Integer(_));
-            try_match_single_token_to_value!(TokenKind::String(_));
-            try_match_single_token_to_value!(TokenKind::FloatingPoint(_));
-            try_match_single_token_to_value!(TokenKind::Identifier(_));
-            try_match_single_token_to_value!(TokenKind::KeywordTrue);
-            try_match_single_token_to_value!(TokenKind::KeywordFalse);
+            try_match_single_token_to_immediate_value!(TokenKind::Integer(_));
+            try_match_single_token_to_immediate_value!(TokenKind::String(_));
+            try_match_single_token_to_immediate_value!(TokenKind::FloatingPoint(_));
+            try_match_single_token_to_immediate_value!(TokenKind::KeywordTrue);
+            try_match_single_token_to_immediate_value!(TokenKind::KeywordFalse);
+
+            if let Some(token) = try_consume!(self.tokens, TokenKind::Identifier(_)) {
+                return Some(Box::new(Expression::Identifier(
+                    TODO_INFO,
+                    token.clone_identifiers_string(),
+                )));
+            }
 
             if let Some(node) = rewinding_if_none!(self, {
                 try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
@@ -191,7 +167,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_expr(&mut self) -> Option<Box<ParsedExpr<'a>>> {
+    fn parse_expr(&mut self) -> Option<Box<Expression>> {
         self.parse_p1expr()
     }
 
@@ -224,7 +200,7 @@ impl<'a> Parser<'a> {
         parse_p5expr
     );
 
-    fn parse_p5expr(&mut self) -> Option<Box<ParsedExpr<'a>>> {
+    fn parse_p5expr(&mut self) -> Option<Box<Expression>> {
         let parsing_methods = &[
             Self::parse_unary_minus,
             Self::parse_array_indexing,
@@ -240,25 +216,36 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_unary_minus(&mut self) -> Option<Box<ParsedExpr<'a>>> {
+    fn parse_unary_minus(&mut self) -> Option<Box<Expression>> {
         rewinding_if_none!(self, {
-            let operator = try_consume!(self.tokens, TokenKind::Minus)?;
+            try_consume!(self.tokens, TokenKind::Minus)?;
             let value = self.parse_value()?;
-            Some(Box::new(ParsedExpr::UnaryOperation(operator, value)))
+            Some(Box::new(Expression::UnaryOperation(
+                TODO_INFO,
+                None,
+                UnaryOperator::Negation,
+                value,
+            )))
         })
     }
 
-    fn parse_array_indexing(&mut self) -> Option<Box<ParsedExpr<'a>>> {
+    fn parse_array_indexing(&mut self) -> Option<Box<Expression>> {
         rewinding_if_none!(self, {
             let indexable = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
             let index = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
-            Some(Box::new(ParsedExpr::ArrayIndexing(indexable, index)))
+            Some(Box::new(Expression::BinaryOperation(
+                TODO_INFO,
+                None,
+                indexable,
+                BinaryOperator::Indexing,
+                index,
+            )))
         })
     }
 
-    fn parse_function_call(&mut self) -> Option<Box<ParsedExpr<'a>>> {
+    fn parse_function_call(&mut self) -> Option<Box<Expression>> {
         rewinding_if_none!(self, {
             let function = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
@@ -266,11 +253,13 @@ impl<'a> Parser<'a> {
                 myself.parse_expr().map(|x| *x)
             })?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
-            Some(Box::new(ParsedExpr::FunctionCall(function, arguments)))
+            Some(Box::new(Expression::FunctionCall(
+                TODO_INFO, None, function, arguments,
+            )))
         })
     }
 
-    fn parse_let_declaration(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_let_declaration(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordLet)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
@@ -278,15 +267,17 @@ impl<'a> Parser<'a> {
             let declared_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(ParsedStatement::LetDeclaration(
-                name,
-                declared_type,
-                expr,
+            Some(Box::new(Statement::Declaration(
+                TODO_INFO,
+                name.clone_identifiers_string(),
+                Some(*declared_type),
+                true,
+                *expr,
             )))
         })
     }
 
-    fn parse_var_declaration(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_var_declaration(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordVar)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
@@ -294,34 +285,41 @@ impl<'a> Parser<'a> {
             let declared_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(ParsedStatement::VarDeclaration(
-                name,
-                declared_type,
-                expr,
+            Some(Box::new(Statement::Declaration(
+                TODO_INFO,
+                name.clone_identifiers_string(),
+                Some(*declared_type),
+                false,
+                *expr,
             )))
         })
     }
 
-    fn parse_assignment(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_assignment_operator(&mut self) -> Option<AssignmentOperator> {
+        let operator_token = try_consume!(
+            self.tokens,
+            TokenKind::Equal
+                | TokenKind::PlusEqual
+                | TokenKind::MinusEqual
+                | TokenKind::StarEqual
+                | TokenKind::SlashEqual
+        )?;
+        Some(operator_token.as_assignment_operator())
+    }
+
+    fn parse_assignment(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             // FIXME: Only a subset of expressions are valid lvalues
             let lvalue = self.parse_expr()?;
-            let operator = try_consume!(
-                self.tokens,
-                TokenKind::Equal
-                    | TokenKind::PlusEqual
-                    | TokenKind::MinusEqual
-                    | TokenKind::StarEqual
-                    | TokenKind::SlashEqual
-            )?;
+            let operator = self.parse_assignment_operator()?;
             let rvalue = self.parse_expr()?;
-            Some(Box::new(ParsedStatement::Assignment(
-                lvalue, operator, rvalue,
+            Some(Box::new(Statement::Assignment(
+                TODO_INFO, *lvalue, operator, *rvalue,
             )))
         })
     }
 
-    fn parse_if(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_if(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordIf)?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
@@ -329,11 +327,17 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             let true_branch = self.parse_block()?;
             match try_consume!(self.tokens, TokenKind::KeywordElse) {
-                None => Some(Box::new(ParsedStatement::If(condition, true_branch, None))),
+                None => Some(Box::new(Statement::If(
+                    TODO_INFO,
+                    *condition,
+                    true_branch,
+                    None,
+                ))),
                 _ => {
                     let false_branch = self.parse_block()?;
-                    Some(Box::new(ParsedStatement::If(
-                        condition,
+                    Some(Box::new(Statement::If(
+                        TODO_INFO,
+                        *condition,
                         true_branch,
                         Some(false_branch),
                     )))
@@ -342,53 +346,62 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_while(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_while(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordWhile)?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
             let condition = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             let loop_block = self.parse_block()?;
-            Some(Box::new(ParsedStatement::While(condition, loop_block)))
+            Some(Box::new(Statement::While(
+                TODO_INFO, *condition, loop_block,
+            )))
         })
     }
 
-    fn parse_for(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_for(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFor)?;
             let pre = self.parse_block()?;
             let condition = self.parse_expr()?;
             let post = self.parse_block()?;
             let loop_block = self.parse_block()?;
-            Some(Box::new(ParsedStatement::For(
-                pre, condition, post, loop_block,
+            Some(Box::new(Statement::For(
+                TODO_INFO, pre, *condition, post, loop_block,
             )))
         })
     }
 
-    fn parse_return(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_return(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordReturn)?;
             let expression = self.parse_expr()?;
-            Some(Box::new(ParsedStatement::Return(expression)))
+            Some(Box::new(Statement::Return(TODO_INFO, *expression)))
         })
     }
 
-    fn parse_type(&mut self) -> Option<Box<ParsedType<'a>>> {
+    fn parse_type(&mut self) -> Option<Box<Type>> {
         if let Some(array_of_type) = rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
             let inner_type = self.parse_type()?;
             try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
-            Some(Box::new(ParsedType::Array(inner_type)))
+            Some(Box::new(Type::Array(inner_type)))
         }) {
             Some(array_of_type)
         } else {
             let base_type = try_consume!(self.tokens, TokenKind::Identifier(_))?;
-            Some(Box::new(ParsedType::Base(base_type)))
+            let type_name = base_type.clone_identifiers_string();
+            Some(match type_name.as_str() {
+                "int" => Box::new(Type::Integer),
+                "float" => Box::new(Type::FloatingPoint),
+                "bool" => Box::new(Type::Boolean),
+                "string" => Box::new(Type::String),
+                _ => Box::new(Type::UserDefined(type_name)),
+            })
         }
     }
 
-    fn parse_root_function_declaration(&mut self) -> Option<RootFunctionDeclaration<'a>> {
+    fn parse_root_function_declaration(&mut self) -> Option<TopLevelDeclaration> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFn)?;
             let function_name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
@@ -399,28 +412,30 @@ impl<'a> Parser<'a> {
                     let arg_name = try_consume!(myself.tokens, TokenKind::Identifier(_))?;
                     try_consume!(myself.tokens, TokenKind::Colon)?;
                     let arg_type = myself.parse_type()?;
-                    Some((arg_name, arg_type))
+                    Some((arg_name.clone_identifiers_string(), *arg_type))
                 })?;
 
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             try_consume!(self.tokens, TokenKind::MinusGreaterThan)?;
             let return_type = self.parse_type()?;
             let function_code = self.parse_block()?;
-            Some(RootFunctionDeclaration {
-                name: function_name,
-                args: collected_parameters,
-                return_type,
-                content: function_code,
-            })
+            Some(TopLevelDeclaration::Function(
+                TODO_INFO,
+                None,
+                function_name.clone_identifiers_string(),
+                collected_parameters,
+                *return_type,
+                *function_code,
+            ))
         })
     }
 
-    fn parse_statement_expr(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_statement_expr(&mut self) -> Option<Box<Statement>> {
         let expr = self.parse_expr()?;
-        Some(Box::new(ParsedStatement::StatementExpr(expr)))
+        Some(Box::new(Statement::InLineExpression(TODO_INFO, *expr)))
     }
 
-    fn parse_statement(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_statement(&mut self) -> Option<Box<Statement>> {
         let semicolon_terminated_statements = [
             Self::parse_let_declaration,
             Self::parse_var_declaration,
@@ -457,7 +472,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_block(&mut self) -> Option<Box<ParsedStatement<'a>>> {
+    fn parse_block(&mut self) -> Option<Box<Statement>> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::OpenCurlyBracket)?;
             let mut statements = vec![];
@@ -465,14 +480,74 @@ impl<'a> Parser<'a> {
                 statements.push(*s);
             }
             try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
-            Some(Box::new(ParsedStatement::Block(statements)))
+            Some(Box::new(Statement::Block(TODO_INFO, statements)))
         })
+    }
+}
+
+impl Token<'_> {
+    pub fn as_assignment_operator(&self) -> AssignmentOperator {
+        match self.kind {
+            TokenKind::Equal => AssignmentOperator::Equal,
+            TokenKind::PlusEqual => AssignmentOperator::AddEqual,
+            TokenKind::MinusEqual => AssignmentOperator::SubEqual,
+            TokenKind::StarEqual => AssignmentOperator::MulEqual,
+            TokenKind::SlashEqual => AssignmentOperator::DivEqual,
+            _ => panic!("Token {:?} was parsed successfully in an assignment but there is no corresponding assignment operator", self)
+        }
+    }
+
+    pub fn as_binary_operator(&self) -> BinaryOperator {
+        match self.kind {
+            TokenKind::Plus => BinaryOperator::Add,
+            TokenKind::Minus => BinaryOperator::Sub,
+            TokenKind::Star => BinaryOperator::Mul,
+            TokenKind::Slash => BinaryOperator::Div,
+            TokenKind::KeywordAnd => BinaryOperator::And,
+            TokenKind::KeywordOr => BinaryOperator::Or,
+            TokenKind::KeywordNor => BinaryOperator::Nor,
+            TokenKind::KeywordXor => BinaryOperator::Xor,
+            TokenKind::EqualEqual => BinaryOperator::Equal,
+            TokenKind::ExclamationMarkEqual => BinaryOperator::NotEqual,
+            TokenKind::GreaterThan => BinaryOperator::GreaterThan,
+            TokenKind::GreaterThanEqual => BinaryOperator::GreaterThanEqual,
+            TokenKind::LessThan => BinaryOperator::LessThan,
+            TokenKind::LessThanEqual => BinaryOperator::LessThanEqual,
+            _ => panic!("Token {:?} was parsed successfully in a binary expression but there is no corresponding binary operator", self)
+        }
+    }
+
+    pub fn as_immediate_value(&self) -> ImmediateValue {
+        match self.kind {
+            TokenKind::Integer(x) => ImmediateValue::Integer(x),
+            TokenKind::FloatingPoint(f) => ImmediateValue::FloatingPoint(f),
+            TokenKind::KeywordTrue => ImmediateValue::Boolean(true),
+            TokenKind::KeywordFalse => ImmediateValue::Boolean(false),
+            TokenKind::String(s) => ImmediateValue::String(s.to_string()),
+            _ => panic!("Token {:?} was used successfully in a parse but expected to be converted to an immediate value", self)
+        }
+    }
+
+    pub fn clone_identifiers_string(&self) -> String {
+        match self.kind {
+            TokenKind::Identifier(s) => s.to_string(),
+            _ => panic!(
+                "Token {:?} was used successfully in a parse but expected to be an identifier",
+                self
+            ),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const I: SourceInfo = SourceInfo {
+        line: 0,
+        column: 0,
+        offset_in_source: 0,
+    };
 
     fn tok(kind: TokenKind) -> Token {
         Token {
@@ -482,22 +557,36 @@ mod tests {
         }
     }
 
-    fn binop<'a>(
-        left: Box<ParsedExpr<'a>>,
-        op: &'a Token<'a>,
-        right: Box<ParsedExpr<'a>>,
-    ) -> Box<ParsedExpr<'a>> {
-        Box::new(ParsedExpr::BinaryOperation(left, op, right))
+    fn intval(x: i64) -> Box<Expression> {
+        Box::new(Expression::Value(ImmediateValue::Integer(x)))
     }
 
-    fn val<'a>(v: &'a Token<'a>) -> Box<ParsedExpr<'a>> {
-        Box::new(ParsedExpr::Value(v))
+    fn floatval(x: f64) -> Box<Expression> {
+        Box::new(Expression::Value(ImmediateValue::FloatingPoint(x)))
     }
 
-    macro_rules! basetype {
-        ($val:expr) => {
-            Box::new(ParsedType::Base(&tok(TokenKind::Identifier($val))))
-        };
+    fn stringval(s: &str) -> Box<Expression> {
+        Box::new(Expression::Value(ImmediateValue::String(s.to_string())))
+    }
+
+    fn ident(s: &str) -> Box<Expression> {
+        Box::new(Expression::Identifier(I, s.to_string()))
+    }
+
+    fn boolval(b: bool) -> Box<Expression> {
+        Box::new(Expression::Value(ImmediateValue::Boolean(b)))
+    }
+
+    fn unaryop(op: UnaryOperator, e: Box<Expression>) -> Box<Expression> {
+        Box::new(Expression::UnaryOperation(I, None, op, e))
+    }
+
+    fn binop(left: Box<Expression>, op: BinaryOperator, right: Box<Expression>) -> Box<Expression> {
+        Box::new(Expression::BinaryOperation(I, None, left, op, right))
+    }
+
+    fn functioncall(name: &str, values: Vec<Expression>) -> Box<Expression> {
+        Box::new(Expression::FunctionCall(I, None, ident(name), values))
     }
 
     #[test]
@@ -511,19 +600,10 @@ mod tests {
         ];
         let mut parser = Parser::new(&tokens);
 
-        assert_eq!(parser.parse_value(), Some(val(&tok(TokenKind::Integer(1)))));
-        assert_eq!(
-            parser.parse_value(),
-            Some(val(&tok(TokenKind::FloatingPoint(3.14))))
-        );
-        assert_eq!(
-            parser.parse_value(),
-            Some(val(&tok(TokenKind::String("Hello"))))
-        );
-        assert_eq!(
-            parser.parse_value(),
-            Some(val(&tok(TokenKind::Identifier("count"))))
-        );
+        assert_eq!(parser.parse_value(), Some(intval(1)));
+        assert_eq!(parser.parse_value(), Some(floatval(3.14)));
+        assert_eq!(parser.parse_value(), Some(stringval("Hello")));
+        assert_eq!(parser.parse_value(), Some(ident("count")));
         assert_eq!(parser.parse_value(), None);
     }
 
@@ -532,19 +612,13 @@ mod tests {
         let tokens = [tok(TokenKind::Integer(1))];
 
         let mut parser = Parser::new(&tokens);
-        assert_eq!(
-            parser.parse_p5expr(),
-            Some(val(&tok(TokenKind::Integer(1))))
-        );
+        assert_eq!(parser.parse_p5expr(), Some(intval(1)));
 
         let tokens = [tok(TokenKind::Minus), tok(TokenKind::Integer(1))];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(ParsedExpr::UnaryOperation(
-                &tok(TokenKind::Minus),
-                val(&tok(TokenKind::Integer(1)))
-            )))
+            Some(unaryop(UnaryOperator::Negation, intval(1)))
         );
 
         let tokens = [
@@ -556,10 +630,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(ParsedExpr::ArrayIndexing(
-                val(&tok(TokenKind::Identifier("values"))),
-                val(&tok(TokenKind::Integer(1)))
-            )))
+            Some(binop(ident("values"), BinaryOperator::Indexing, intval(1)))
         );
 
         let tokens = [
@@ -573,13 +644,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p5expr(),
-            Some(Box::new(ParsedExpr::FunctionCall(
-                val(&tok(TokenKind::Identifier("myfunc"))),
-                vec![
-                    ParsedExpr::Value(&tok(TokenKind::Integer(1))),
-                    ParsedExpr::Value(&tok(TokenKind::Integer(2)))
-                ]
-            )))
+            Some(functioncall("myfunc", vec![*intval(1), *intval(2)]))
         );
     }
 
@@ -591,20 +656,15 @@ mod tests {
             tok(TokenKind::Integer(2)),
             tok(TokenKind::Slash),
             tok(TokenKind::Integer(3)),
-            tok(TokenKind::Plus),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_p4expr(),
             Some(binop(
-                binop(
-                    val(&tok(TokenKind::Integer(1))),
-                    &tok(TokenKind::Star),
-                    val(&tok(TokenKind::Integer(2)))
-                ),
-                &tok(TokenKind::Slash),
-                val(&tok(TokenKind::Integer(3)))
+                binop(intval(1), BinaryOperator::Mul, intval(2)),
+                BinaryOperator::Div,
+                intval(3)
             ))
         );
     }
@@ -623,13 +683,9 @@ mod tests {
         assert_eq!(
             parser.parse_p3expr(),
             Some(binop(
-                val(&tok(TokenKind::Integer(1))),
-                &tok(TokenKind::Plus),
-                binop(
-                    val(&tok(TokenKind::Integer(2))),
-                    &tok(TokenKind::Star),
-                    val(&tok(TokenKind::Integer(3)))
-                )
+                intval(1),
+                BinaryOperator::Add,
+                binop(intval(2), BinaryOperator::Mul, intval(3))
             ))
         );
     }
@@ -656,23 +712,15 @@ mod tests {
             Some(binop(
                 binop(
                     binop(
-                        val(&tok(TokenKind::Integer(1))),
-                        &tok(TokenKind::Plus),
-                        binop(
-                            val(&tok(TokenKind::Integer(2))),
-                            &tok(TokenKind::Star),
-                            val(&tok(TokenKind::Integer(3)))
-                        )
+                        intval(1),
+                        BinaryOperator::Add,
+                        binop(intval(2), BinaryOperator::Mul, intval(3))
                     ),
-                    &tok(TokenKind::EqualEqual),
-                    binop(
-                        val(&tok(TokenKind::Integer(4))),
-                        &tok(TokenKind::Plus),
-                        val(&tok(TokenKind::Integer(3)))
-                    )
+                    BinaryOperator::Equal,
+                    binop(intval(4), BinaryOperator::Add, intval(3))
                 ),
-                &tok(TokenKind::LessThanEqual),
-                val(&tok(TokenKind::Integer(10)))
+                BinaryOperator::LessThanEqual,
+                intval(10)
             ))
         );
     }
@@ -698,24 +746,12 @@ mod tests {
             parser.parse_p1expr(),
             Some(binop(
                 binop(
-                    binop(
-                        val(&tok(TokenKind::Integer(1))),
-                        &tok(TokenKind::LessThan),
-                        val(&tok(TokenKind::Integer(2)))
-                    ),
-                    &tok(TokenKind::KeywordAnd),
-                    binop(
-                        val(&tok(TokenKind::Integer(3))),
-                        &tok(TokenKind::LessThan),
-                        val(&tok(TokenKind::Integer(99)))
-                    )
+                    binop(intval(1), BinaryOperator::LessThan, intval(2)),
+                    BinaryOperator::And,
+                    binop(intval(3), BinaryOperator::LessThan, intval(99))
                 ),
-                &tok(TokenKind::KeywordOr),
-                binop(
-                    val(&tok(TokenKind::Integer(4))),
-                    &tok(TokenKind::EqualEqual),
-                    val(&tok(TokenKind::Integer(5)))
-                )
+                BinaryOperator::Or,
+                binop(intval(4), BinaryOperator::Equal, intval(5))
             ))
         );
     }
@@ -773,61 +809,39 @@ mod tests {
                     binop(
                         binop(
                             binop(
-                                val(&tok(TokenKind::Integer(2))),
-                                &tok(TokenKind::Plus),
+                                intval(2),
+                                BinaryOperator::Add,
                                 binop(
-                                    binop(
-                                        val(&tok(TokenKind::Integer(3))),
-                                        &tok(TokenKind::Star),
-                                        val(&tok(TokenKind::Integer(5)))
-                                    ),
-                                    &tok(TokenKind::Star),
-                                    Box::new(ParsedExpr::UnaryOperation(
-                                        &tok(TokenKind::Minus),
-                                        val(&tok(TokenKind::Integer(1)))
-                                    ))
+                                    binop(intval(3), BinaryOperator::Mul, intval(5)),
+                                    BinaryOperator::Mul,
+                                    unaryop(UnaryOperator::Negation, intval(1))
                                 )
                             ),
-                            &tok(TokenKind::Minus),
-                            Box::new(ParsedExpr::UnaryOperation(
-                                &tok(TokenKind::Minus),
-                                val(&tok(TokenKind::Integer(2))),
-                            ))
+                            BinaryOperator::Sub,
+                            unaryop(UnaryOperator::Negation, intval(2))
                         ),
-                        &tok(TokenKind::EqualEqual),
+                        BinaryOperator::Equal,
                         binop(
-                            binop(
-                                val(&tok(TokenKind::Integer(1))),
-                                &tok(TokenKind::Slash),
-                                val(&tok(TokenKind::FloatingPoint(2.0)))
-                            ),
-                            &tok(TokenKind::Plus),
-                            val(&tok(TokenKind::String("hello")))
+                            binop(intval(1), BinaryOperator::Div, floatval(2.0)),
+                            BinaryOperator::Add,
+                            stringval("hello")
                         )
                     ),
-                    &tok(TokenKind::KeywordAnd),
-                    binop(
-                        val(&tok(TokenKind::Identifier("x"))),
-                        &tok(TokenKind::KeywordXor),
-                        val(&tok(TokenKind::Identifier("y")))
-                    )
+                    BinaryOperator::And,
+                    binop(ident("x"), BinaryOperator::Xor, ident("y"))
                 ),
-                &tok(TokenKind::KeywordOr),
+                BinaryOperator::Or,
                 binop(
-                    binop(
-                        val(&tok(TokenKind::KeywordTrue)),
-                        &tok(TokenKind::ExclamationMarkEqual),
-                        val(&tok(TokenKind::KeywordFalse))
-                    ),
-                    &tok(TokenKind::KeywordNor),
+                    binop(boolval(true), BinaryOperator::NotEqual, boolval(false)),
+                    BinaryOperator::Nor,
                     binop(
                         binop(
-                            val(&tok(TokenKind::FloatingPoint(0.1))),
-                            &tok(TokenKind::LessThanEqual),
-                            val(&tok(TokenKind::FloatingPoint(0.1234)))
+                            floatval(0.1),
+                            BinaryOperator::LessThanEqual,
+                            floatval(0.1234)
                         ),
-                        &tok(TokenKind::GreaterThanEqual),
-                        val(&tok(TokenKind::FloatingPoint(0.123)))
+                        BinaryOperator::GreaterThanEqual,
+                        floatval(0.123)
                     )
                 )
             ))
@@ -850,13 +864,9 @@ mod tests {
         assert_eq!(
             parser.parse_expr(),
             Some(binop(
-                val(&tok(TokenKind::Integer(1))),
-                &tok(TokenKind::Star),
-                binop(
-                    val(&tok(TokenKind::Integer(2))),
-                    &tok(TokenKind::Plus),
-                    val(&tok(TokenKind::Integer(3)))
-                )
+                intval(1),
+                BinaryOperator::Mul,
+                binop(intval(2), BinaryOperator::Add, intval(3))
             ))
         );
     }
@@ -877,14 +887,12 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_let_declaration(),
-            Some(Box::new(ParsedStatement::LetDeclaration(
-                &tok(TokenKind::Identifier("myval")),
-                Box::new(ParsedType::Base(&tok(TokenKind::Identifier("int")))),
-                binop(
-                    val(&tok(TokenKind::Integer(1))),
-                    &tok(TokenKind::Plus),
-                    val(&tok(TokenKind::Integer(1)))
-                )
+            Some(Box::new(Statement::Declaration(
+                I,
+                "myval".to_string(),
+                Some(Type::Integer),
+                true,
+                *binop(intval(1), BinaryOperator::Add, intval(1))
             )))
         );
     }
@@ -905,14 +913,12 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_var_declaration(),
-            Some(Box::new(ParsedStatement::VarDeclaration(
-                &tok(TokenKind::Identifier("myval")),
-                Box::new(ParsedType::Base(&tok(TokenKind::Identifier("int")))),
-                binop(
-                    val(&tok(TokenKind::Integer(1))),
-                    &tok(TokenKind::Plus),
-                    val(&tok(TokenKind::Integer(1)))
-                )
+            Some(Box::new(Statement::Declaration(
+                I,
+                "myval".to_string(),
+                Some(Type::Integer),
+                false,
+                *binop(intval(1), BinaryOperator::Add, intval(1))
             )))
         );
     }
@@ -930,14 +936,11 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_assignment(),
-            Some(Box::new(ParsedStatement::Assignment(
-                val(&tok(TokenKind::Identifier("x"))),
-                &tok(TokenKind::Equal),
-                binop(
-                    val(&tok(TokenKind::Identifier("x"))),
-                    &tok(TokenKind::Plus),
-                    val(&tok(TokenKind::Integer(1)))
-                )
+            Some(Box::new(Statement::Assignment(
+                I,
+                *ident("x"),
+                AssignmentOperator::Equal,
+                *binop(ident("x"), BinaryOperator::Add, intval(1))
             )))
         );
     }
@@ -954,10 +957,11 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_statement(),
-            Some(Box::new(ParsedStatement::Assignment(
-                val(&tok(TokenKind::Identifier("x"))),
-                &tok(TokenKind::Equal),
-                val(&tok(TokenKind::Integer(1)))
+            Some(Box::new(Statement::Assignment(
+                I,
+                *ident("x"),
+                AssignmentOperator::Equal,
+                *intval(1)
             )))
         );
     }
@@ -979,10 +983,11 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
-            Some(Box::new(ParsedStatement::If(
-                val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ParsedStatement::Block(vec![])),
-                Some(Box::new(ParsedStatement::Block(vec![])))
+            Some(Box::new(Statement::If(
+                I,
+                *boolval(true),
+                Box::new(Statement::Block(I, vec![])),
+                Some(Box::new(Statement::Block(I, vec![])))
             )))
         );
     }
@@ -1001,9 +1006,10 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
-            Some(Box::new(ParsedStatement::If(
-                val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ParsedStatement::Block(vec![])),
+            Some(Box::new(Statement::If(
+                I,
+                *boolval(true),
+                Box::new(Statement::Block(I, vec![])),
                 None
             )))
         );
@@ -1023,9 +1029,10 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_while(),
-            Some(Box::new(ParsedStatement::While(
-                val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ParsedStatement::Block(vec![]))
+            Some(Box::new(Statement::While(
+                I,
+                *boolval(true),
+                Box::new(Statement::Block(I, vec![]))
             )))
         );
     }
@@ -1048,11 +1055,12 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_for(),
-            Some(Box::new(ParsedStatement::For(
-                Box::new(ParsedStatement::Block(vec![])),
-                val(&tok(TokenKind::KeywordTrue)),
-                Box::new(ParsedStatement::Block(vec![])),
-                Box::new(ParsedStatement::Block(vec![])),
+            Some(Box::new(Statement::For(
+                I,
+                Box::new(Statement::Block(I, vec![])),
+                *boolval(true),
+                Box::new(Statement::Block(I, vec![])),
+                Box::new(Statement::Block(I, vec![])),
             )))
         );
     }
@@ -1064,9 +1072,7 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_return(),
-            Some(Box::new(ParsedStatement::Return(val(&tok(
-                TokenKind::Integer(1)
-            )),)))
+            Some(Box::new(Statement::Return(I, *intval(1))))
         );
     }
 
@@ -1095,18 +1101,19 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_block(),
-            Some(Box::new(ParsedStatement::Block(vec![
-                ParsedStatement::Assignment(
-                    val(&tok(TokenKind::Identifier("x"))),
-                    &tok(TokenKind::Equal),
-                    val(&tok(TokenKind::Integer(1)))
-                ),
-                ParsedStatement::LetDeclaration(
-                    &tok(TokenKind::Identifier("y")),
-                    Box::new(ParsedType::Base(&tok(TokenKind::Identifier("int")))),
-                    val(&tok(TokenKind::Integer(2)))
-                )
-            ])))
+            Some(Box::new(Statement::Block(
+                I,
+                vec![
+                    Statement::Assignment(I, *ident("x"), AssignmentOperator::Equal, *intval(1)),
+                    Statement::Declaration(
+                        I,
+                        "y".to_string(),
+                        Some(Type::Integer),
+                        true,
+                        *intval(2)
+                    )
+                ]
+            )))
         );
     }
 
@@ -1123,9 +1130,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_type(),
-            Some(Box::new(ParsedType::Array(Box::new(ParsedType::Array(
-                basetype!("int")
-            )))))
+            Some(Box::new(Type::Array(Box::new(Type::Array(Box::new(
+                Type::Integer
+            ))))))
         );
     }
 
@@ -1137,7 +1144,7 @@ mod tests {
             tok(TokenKind::OpenRoundBracket),
             tok(TokenKind::Identifier("arg1")),
             tok(TokenKind::Colon),
-            tok(TokenKind::Identifier("u32")),
+            tok(TokenKind::Identifier("int")),
             tok(TokenKind::Comma),
             tok(TokenKind::Identifier("arg2")),
             tok(TokenKind::Colon),
@@ -1145,10 +1152,10 @@ mod tests {
             tok(TokenKind::Comma),
             tok(TokenKind::Identifier("arg3")),
             tok(TokenKind::Colon),
-            tok(TokenKind::Identifier("str")),
+            tok(TokenKind::Identifier("string")),
             tok(TokenKind::CloseRoundBracket),
             tok(TokenKind::MinusGreaterThan),
-            tok(TokenKind::Identifier("ReturnType")),
+            tok(TokenKind::Identifier("CustomType")),
             tok(TokenKind::OpenCurlyBracket),
             tok(TokenKind::CloseCurlyBracket),
         ];
@@ -1156,16 +1163,18 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_root_function_declaration(),
-            Some(RootFunctionDeclaration {
-                name: &tok(TokenKind::Identifier("myfunc")),
-                args: vec![
-                    (&tok(TokenKind::Identifier("arg1")), basetype!("u32")),
-                    (&tok(TokenKind::Identifier("arg2")), basetype!("bool")),
-                    (&tok(TokenKind::Identifier("arg3")), basetype!("str")),
+            Some(TopLevelDeclaration::Function(
+                I,
+                None,
+                "myfunc".to_string(),
+                vec![
+                    ("arg1".to_string(), Type::Integer),
+                    ("arg2".to_string(), Type::Boolean),
+                    ("arg3".to_string(), Type::String)
                 ],
-                return_type: basetype!("ReturnType"),
-                content: Box::new(ParsedStatement::Block(vec![]))
-            })
+                Type::UserDefined("CustomType".to_string()),
+                Statement::Block(I, vec![])
+            ))
         );
     }
 }

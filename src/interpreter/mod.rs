@@ -23,11 +23,9 @@ pub fn tokenize(source: &str) -> Result<Vec<lexer::Token>, Vec<lexer::LexerError
     }
 }
 
-pub fn parse<'a>(
-    tokens: &'a [lexer::Token<'a>],
-) -> Result<Vec<parser::RootFunctionDeclaration<'a>>, &'static str> {
-    match parser::Parser::new(tokens).parse_program() {
-        Some(ast_nodes) => Ok(ast_nodes),
-        None => Err("Parsing Error: I don't have any other info for you"),
-    }
+pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Vec<TopLevelDeclaration>, &'static str> {
+    parser::Parser::new(tokens)
+        .parse_program()
+        .ok_or("Parse Error")
+}
 }
