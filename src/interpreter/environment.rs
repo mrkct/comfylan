@@ -1,4 +1,3 @@
-use super::parser::RootFunctionDeclaration;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq)]
@@ -21,18 +20,12 @@ pub enum EnvError {
 }
 
 impl<T: Clone> Env<T> {
-    fn base_env() -> Rc<Env<T>> {
+    pub fn empty() -> Rc<Env<T>> {
         let e = Env {
             symbols: RefCell::new(HashMap::new()),
             parent_env: None,
         };
-        // TODO: Add native functions here
         Rc::new(e)
-    }
-
-    pub fn root_env(_root_function_declarations: &[RootFunctionDeclaration]) -> Rc<Env<T>> {
-        // TODO: Fill the root env with the outmost function declarations
-        Env::base_env()
     }
 
     pub fn create_child(parent: &Rc<Env<T>>) -> Rc<Env<T>> {
@@ -94,14 +87,14 @@ mod tests {
 
     #[test]
     fn declare_and_lookup() {
-        let env = Env::base_env();
+        let env = Env::empty();
         let _ = env.declare("myval", 1, false);
         assert_eq!(env.cloning_lookup("myval"), Some(1));
     }
 
     #[test]
     fn lookup_parent() {
-        let parent = Env::base_env();
+        let parent = Env::empty();
         let _ = parent.declare("myval", 1, false);
         let child = Env::create_child(&parent);
         assert_eq!(child.cloning_lookup("myval"), Some(1));
@@ -109,7 +102,7 @@ mod tests {
 
     #[test]
     fn assign_from_child_to_parent() {
-        let parent = Env::base_env();
+        let parent = Env::empty();
         let _ = parent.declare("myval", 1, false);
         let child = Env::create_child(&parent);
         let _ = child.assign("myval", 2);
@@ -118,7 +111,7 @@ mod tests {
 
     #[test]
     fn declare_variable_in_child() {
-        let parent = Env::base_env();
+        let parent = Env::empty();
         let child = Env::create_child(&parent);
         let _ = child.declare("myval", 1, false);
         assert_eq!(parent.cloning_lookup("myval"), None);
@@ -126,7 +119,7 @@ mod tests {
 
     #[test]
     fn child_symbol_shadows_parents() {
-        let parent = Env::base_env();
+        let parent = Env::empty();
         let _ = parent.declare("myval", 1, true);
         let child = Env::create_child(&parent);
         let _ = child.declare("myval", 2, false);
@@ -136,7 +129,7 @@ mod tests {
 
     #[test]
     fn assign_to_const_fails() {
-        let parent = Env::base_env();
+        let parent = Env::empty();
         let _ = parent.declare("myval", 1, true);
         assert_eq!(
             parent.assign("myval", 2),
@@ -146,7 +139,7 @@ mod tests {
 
     #[test]
     fn assign_to_undeclared_fails() {
-        let parent = Env::base_env();
+        let parent = Env::empty();
         assert_eq!(
             parent.assign("undeclared", 1),
             Err(EnvError::SymbolNotFound("undeclared".to_string()))
@@ -155,7 +148,7 @@ mod tests {
 
     #[test]
     fn assign_through_lookup_as_ref() {
-        let parent = Env::base_env();
+        let parent = Env::empty();
         parent.declare("hello", 1, true);
         parent.lookup_mut("hello", |v| *v.unwrap() = 77);
         assert_eq!(parent.cloning_lookup("hello"), Some(77));

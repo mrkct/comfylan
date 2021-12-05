@@ -1,8 +1,5 @@
 use super::typechecking::Type;
-use crate::interpreter::{
-    ast::*,
-    environment::{Env, EnvError},
-};
+use crate::interpreter::{ast::*, environment::Env};
 use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug, PartialEq)]
@@ -531,14 +528,14 @@ mod tests {
     #[test]
     fn simple_addition() {
         let e = binop(intval(1), BinaryOperator::Add, intval(2));
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(3)));
     }
 
     #[test]
     fn simple_addition_with_identifier() {
         let e = binop(intval(1), BinaryOperator::Add, ident("x"));
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         let _ = env.declare("x", ImmediateValue::Integer(2), true);
         assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(3)));
     }
@@ -546,7 +543,7 @@ mod tests {
     #[test]
     fn divide_by_zero() {
         let e = Expression::BinaryOperation(INFO, None, intval(1), BinaryOperator::Div, intval(0));
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert!(matches!(
             e.eval(&env),
             Err(EvaluationError::DivisionByZero(_))
@@ -560,7 +557,7 @@ mod tests {
             BinaryOperator::Sub,
             binop(intval(77), BinaryOperator::Div, intval(10)),
         );
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(14)));
     }
 
@@ -571,7 +568,7 @@ mod tests {
             BinaryOperator::Sub,
             intval(3),
         );
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert_eq!(e.eval(&env), Ok(ImmediateValue::FloatingPoint(3.0)));
     }
 
@@ -582,7 +579,7 @@ mod tests {
             BinaryOperator::Sub,
             intval(3),
         );
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert_eq!(e.eval(&env), Ok(ImmediateValue::FloatingPoint(3.0)));
     }
 
@@ -639,7 +636,7 @@ mod tests {
                 ),
             ),
         );
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert_eq!(e.eval(&env), Ok(ImmediateValue::Boolean(true)));
     }
 
@@ -657,7 +654,7 @@ mod tests {
             BinaryOperator::Indexing,
             intval(2),
         );
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(9)));
     }
 
@@ -675,7 +672,7 @@ mod tests {
             BinaryOperator::Indexing,
             intval(3),
         );
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert!(matches!(
             e.eval(&env),
             Err(EvaluationError::ArrayIndexOutOfBounds(_, 3, 3))
@@ -684,7 +681,7 @@ mod tests {
 
     #[test]
     fn array_cell_as_lvalue() {
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         env.declare(
             "array",
             ImmediateValue::Array(
@@ -760,13 +757,13 @@ mod tests {
                 Statement::Return(INFO, *ident("x")),
             ],
         );
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         assert_eq!(program.eval(&env), Ok(Some(ImmediateValue::Integer(45))));
     }
 
     #[test]
     fn simple_function_call() {
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         let function = Box::new(Statement::Block(
             INFO,
             vec![Statement::Return(
@@ -796,7 +793,7 @@ mod tests {
 
     #[test]
     fn recursive_factorial_function_call() {
-        let env = Env::root_env(&[]);
+        let env = Env::empty();
         let function = Box::new(Statement::Block(
             INFO,
             vec![Statement::If(
