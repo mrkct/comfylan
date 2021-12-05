@@ -323,7 +323,6 @@ impl Expression {
                     let function_context_env = Env::create_child(&closure_env);
                     for (argname, argexpr) in args_names.iter().zip(args.iter()) {
                         let argvalue = argexpr.eval(env)?;
-                        print!("{}:{:?}", argname, argvalue);
                         function_context_env.declare(argname, argvalue, false);
                     }
                     statements

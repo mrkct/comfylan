@@ -1,5 +1,7 @@
 use interpreter::lexer::LexerError;
 
+use crate::interpreter::eval;
+
 mod interpreter;
 
 fn print_lexer_errors(errors: &[LexerError]) {
@@ -24,15 +26,15 @@ fn main() {
     fn factorial(x: int) -> int {
         var result: int = 1;
         while (x > 0) {
-            result *= x;
-            x -= 1;
+            result = result * x;
+            x = x - 1;
         }
 
         return result;
     }
 
-    fn main(argc: int) -> void {
-        println("The factorial of 7 is ", factorial(7));
+    fn main(argc: int, argv: [string]) -> void {
+        return factorial(7);
     }
     "#;
 
@@ -49,6 +51,9 @@ fn main() {
         print_parsing_errors(errors);
         return;
     }
-    let parse_tree = parse_tree.unwrap();
-    println!("{:#?}", parse_tree);
+    let top_level_declarations = parse_tree.unwrap();
+    println!("{:#?}", top_level_declarations);
+
+    println!("Execution Result:");
+    println!("{:?}", eval(1, &["test-program"], top_level_declarations));
 }
