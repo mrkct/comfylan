@@ -325,9 +325,19 @@ impl Expression {
                         let argvalue = argexpr.eval(env)?;
                         function_context_env.declare(argname, argvalue, false);
                     }
+
                     statements
                         .eval(&function_context_env)
-                        .map(|v| v.expect("Function returning void was used in an expression"))
+                        .map(|v| v.unwrap_or(ImmediateValue::Void))
+                }
+                Ok(ImmediateValue::NativeFunction(_, native_function)) => {
+                    let mut evaluated_args = vec![];
+                    evaluated_args.reserve_exact(args.len());
+                    for e in args {
+                        let value = e.eval(env)?;
+                        evaluated_args.push(value);
+                    }
+                    Ok(native_function(evaluated_args))
                 }
                 Ok(value) => panic!(
                     "[{:?}]: Cannot use value of types {:?} as a function",

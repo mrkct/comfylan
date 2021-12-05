@@ -34,7 +34,11 @@ fn main() {
     }
 
     fn main(argc: int, argv: [string]) -> void {
-        return factorial(7);
+        print("The value of 7! is ", factorial(7), "\n");
+        var i : int = 0;
+        for {i = 0;} (i < argc) {i += 1;} {
+            print("arg ", i, " is ", argv[i], "\n");
+        }
     }
     "#;
 
@@ -54,6 +58,5 @@ fn main() {
     let top_level_declarations = parse_tree.unwrap();
     println!("{:#?}", top_level_declarations);
 
-    println!("Execution Result:");
     println!("{:?}", eval(1, &["test-program"], top_level_declarations));
 }

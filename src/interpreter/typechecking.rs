@@ -8,4 +8,5 @@ pub enum Type {
     Array(Box<Type>),
     Closure(Vec<Type>, Box<Type>),
     UserDefined(String),
+    Any,
 }

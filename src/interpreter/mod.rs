@@ -5,6 +5,7 @@ pub mod ast;
 pub mod environment;
 pub mod evaluator;
 pub mod lexer;
+mod native;
 pub mod parser;
 pub mod typechecking;
 
@@ -70,6 +71,7 @@ pub fn eval(
     };
     let root_env = Env::empty();
 
+    native::fill_env_with_native_functions(&root_env);
     fill_env_with_top_level_declarations(&root_env, top_level_declarations);
 
     Expression::FunctionCall(

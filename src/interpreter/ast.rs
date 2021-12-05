@@ -52,6 +52,7 @@ pub enum ImmediateValue {
     Boolean(bool),
     Closure(Type, Rc<Env<ImmediateValue>>, Vec<String>, Box<Statement>),
     Array(Type, InternalArrayRepresentation),
+    NativeFunction(Type, fn(Vec<ImmediateValue>) -> ImmediateValue),
     Void,
 }
 
@@ -119,7 +120,8 @@ impl ImmediateValue {
             ImmediateValue::String(_) => Type::String,
             ImmediateValue::Boolean(_) => Type::Boolean,
             ImmediateValue::Array(array_type, _) => Type::Array(Box::new(array_type.clone())),
-            ImmediateValue::Closure(functype, _, _, _) => functype.clone(),
+            ImmediateValue::Closure(functype, _, _, _)
+            | ImmediateValue::NativeFunction(functype, _) => functype.clone(),
             ImmediateValue::Void => Type::Void,
         }
     }
