@@ -7,4 +7,5 @@ pub enum Type {
     Boolean,
     Array(Box<Type>),
     Closure(Vec<Type>, Box<Type>),
+    UserDefined(String),
 }
