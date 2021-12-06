@@ -104,16 +104,15 @@ impl<'a> Parser<'a> {
         Parser { tokens }
     }
 
-    fn parse_token_separated_list_of<T>(
+    fn parse_comma_separated_list_of<T>(
         &mut self,
-        _separator: TokenKind,
         parser: fn(&mut Self) -> Option<T>,
     ) -> Option<Vec<T>> {
         let mut collected_parameters = vec![];
         if let Some(p) = parser(&mut *self) {
             collected_parameters.push(p);
             while let Some(p) = rewinding_if_none!(self, {
-                try_consume!(self.tokens, _separator)?;
+                try_consume!(self.tokens, TokenKind::Comma)?;
                 parser(&mut *self)
             }) {
                 collected_parameters.push(p)
@@ -249,9 +248,8 @@ impl<'a> Parser<'a> {
         rewinding_if_none!(self, {
             let function = self.parse_value()?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
-            let arguments = self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
-                myself.parse_expr().map(|x| *x)
-            })?;
+            let arguments =
+                self.parse_comma_separated_list_of(|myself| myself.parse_expr().map(|x| *x))?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             Some(Box::new(Expression::FunctionCall(
                 TODO_INFO, None, function, arguments,
@@ -407,13 +405,12 @@ impl<'a> Parser<'a> {
             let function_name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
 
-            let collected_parameters =
-                self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
-                    let arg_name = try_consume!(myself.tokens, TokenKind::Identifier(_))?;
-                    try_consume!(myself.tokens, TokenKind::Colon)?;
-                    let arg_type = myself.parse_type()?;
-                    Some((arg_name.clone_identifiers_string(), *arg_type))
-                })?;
+            let collected_parameters = self.parse_comma_separated_list_of(|myself| {
+                let arg_name = try_consume!(myself.tokens, TokenKind::Identifier(_))?;
+                try_consume!(myself.tokens, TokenKind::Colon)?;
+                let arg_type = myself.parse_type()?;
+                Some((arg_name.clone_identifiers_string(), *arg_type))
+            })?;
 
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             try_consume!(self.tokens, TokenKind::MinusGreaterThan)?;
@@ -1176,5 +1173,26 @@ mod tests {
                 Statement::Block(I, vec![])
             ))
         );
+    }
+
+    #[test]
+    fn function_call_minus_1() {
+        let tokens = vec![
+            tok(TokenKind::Identifier("len")),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Identifier("input")),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::Minus),
+            tok(TokenKind::Integer(1)),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(binop(
+                functioncall("len", vec![*ident("input")]),
+                BinaryOperator::Sub,
+                intval(1)
+            ))
+        )
     }
 }
