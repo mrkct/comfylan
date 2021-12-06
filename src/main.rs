@@ -1,6 +1,6 @@
-use interpreter::lexer::LexerError;
-
 use crate::interpreter::eval;
+use interpreter::lexer::LexerError;
+use std::env;
 
 mod interpreter;
 
@@ -22,27 +22,22 @@ fn print_parsing_errors(errors: &str) {
 }
 
 fn main() {
-    let source = r#"
-    fn factorial(x: int) -> int {
-        var result: int = 1;
-        while (x > 0) {
-            result = result * x;
-            x = x - 1;
+    let args = env::args().collect::<Vec<String>>();
+    let source = {
+        if args.len() > 1 {
+            let filepath = args.get(1).unwrap();
+            std::fs::read_to_string(filepath).unwrap()
+        } else {
+            r#"
+                fn main(args: [string]) -> void {
+                    print("Hello, world!\n");
+                }
+            "#
+            .to_string()
         }
+    };
 
-        return result;
-    }
-
-    fn main(argc: int, argv: [string]) -> void {
-        print("The value of 7! is ", factorial(7), "\n");
-        var i : int = 0;
-        for {i = 0;} (i < argc) {i += 1;} {
-            print("arg ", i, " is ", argv[i], "\n");
-        }
-    }
-    "#;
-
-    let tokens = interpreter::tokenize(source);
+    let tokens = interpreter::tokenize(&source);
     if let Err(errors) = tokens {
         print_lexer_errors(&errors);
         return;
