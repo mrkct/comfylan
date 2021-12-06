@@ -53,5 +53,5 @@ fn main() {
     let top_level_declarations = parse_tree.unwrap();
     println!("{:#?}", top_level_declarations);
 
-    println!("{:?}", eval(1, &["test-program"], top_level_declarations));
+    println!("\n{:?}", eval(&["test-program"], top_level_declarations));
 }

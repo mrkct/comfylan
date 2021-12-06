@@ -60,7 +60,6 @@ fn fill_env_with_top_level_declarations(
 }
 
 pub fn eval(
-    argc: i64,
     argv: &[&str],
     top_level_declarations: Vec<TopLevelDeclaration>,
 ) -> Result<ImmediateValue, EvaluationError> {
@@ -78,17 +77,14 @@ pub fn eval(
         FAKE_SOURCE_INFO,
         None,
         Box::new(Expression::Identifier(FAKE_SOURCE_INFO, "main".to_string())),
-        vec![
-            Expression::Value(ImmediateValue::Integer(argc)),
-            Expression::Value(ImmediateValue::Array(
-                Type::String,
-                Rc::new(RefCell::new(
-                    argv.iter()
-                        .map(|v| ImmediateValue::String(v.to_string()))
-                        .collect::<Vec<_>>(),
-                )),
+        vec![Expression::Value(ImmediateValue::Array(
+            Type::String,
+            Rc::new(RefCell::new(
+                argv.iter()
+                    .map(|v| ImmediateValue::String(v.to_string()))
+                    .collect::<Vec<_>>(),
             )),
-        ],
+        ))],
     )
     .eval(&root_env)
 }
