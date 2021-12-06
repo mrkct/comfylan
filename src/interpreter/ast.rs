@@ -64,7 +64,7 @@ pub enum ImmediateValue {
 #[derive(Debug, PartialEq, Clone)]
 pub enum LValue {
     Identifier(String),
-    IndexInArray(InternalArrayRepresentation, usize),
+    IndexInArray(InternalArrayRepresentation, i64),
 }
 
 #[derive(Debug, PartialEq, Clone)]

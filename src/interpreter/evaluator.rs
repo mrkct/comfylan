@@ -5,7 +5,7 @@ use std::{cell::RefCell, rc::Rc};
 #[derive(Debug, PartialEq)]
 pub enum EvaluationError {
     DivisionByZero(SourceInfo),
-    ArrayIndexOutOfBounds(SourceInfo, usize, usize),
+    ArrayIndexOutOfBounds(SourceInfo, usize, i64),
     NotImplemented,
 }
 
@@ -293,7 +293,7 @@ impl Expression {
                             Err(EvaluationError::ArrayIndexOutOfBounds(
                                 *info,
                                 array.borrow().len(),
-                                index as usize,
+                                index,
                             ))
                         }
                     }
@@ -390,7 +390,7 @@ impl Expression {
                 let index = index.eval(env)?;
                 match (array, index) {
                     (ImmediateValue::Array(_, arr), ImmediateValue::Integer(index)) => {
-                        Ok(LValue::IndexInArray(arr, index as usize))
+                        Ok(LValue::IndexInArray(arr, index))
                     }
                     (not_an_array, not_an_index) => {
                         panic!(
@@ -432,7 +432,10 @@ impl Statement {
                     }
                     LValue::IndexInArray(array, index) => {
                         let array_len = array.borrow().len();
-                        match array.borrow_mut().get_mut(index) {
+                        let uindex: usize = index.try_into().map_err(|_| {
+                            EvaluationError::ArrayIndexOutOfBounds(*info, array_len, index)
+                        })?;
+                        match array.borrow_mut().get_mut(uindex) {
                             Some(array_cell) => {
                                 *array_cell = rvalue;
                                 Ok(None)
