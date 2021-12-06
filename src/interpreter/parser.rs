@@ -166,6 +166,17 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_array_initialization(&mut self) -> Option<Box<Expression>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
+            let values = self.parse_comma_separated_list_of(|myself| myself.parse_expr())?;
+            try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
+            Some(Box::new(Expression::ArrayInitializer(
+                TODO_INFO, None, values,
+            )))
+        })
+    }
+
     fn parse_expr(&mut self) -> Option<Box<Expression>> {
         self.parse_p1expr()
     }
@@ -204,6 +215,7 @@ impl<'a> Parser<'a> {
             Self::parse_unary_minus,
             Self::parse_array_indexing,
             Self::parse_function_call,
+            Self::parse_array_initialization,
             Self::parse_value,
         ];
 
@@ -642,6 +654,31 @@ mod tests {
         assert_eq!(
             parser.parse_p5expr(),
             Some(functioncall("myfunc", vec![*intval(1), *intval(2)]))
+        );
+
+        let tokens = [
+            tok(TokenKind::OpenSquareBracket),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Comma),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::Comma),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::CloseSquareBracket),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_p5expr(),
+            Some(Box::new(Expression::ArrayInitializer(
+                TODO_INFO,
+                None,
+                vec![
+                    intval(1),
+                    intval(2),
+                    binop(intval(2), BinaryOperator::Add, intval(1))
+                ]
+            )))
         );
     }
 
