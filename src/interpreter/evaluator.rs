@@ -351,7 +351,7 @@ impl Expression {
                         let value = e.eval(env)?;
                         evaluated_args.push(value);
                     }
-                    Ok(native_function(evaluated_args))
+                    native_function(evaluated_args)
                 }
                 Ok(value) => panic!(
                     "[{:?}]: Cannot use value of types {:?} as a function",

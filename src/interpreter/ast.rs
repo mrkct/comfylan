@@ -1,6 +1,8 @@
 use crate::interpreter::{environment::Env, typechecking::Type};
 use std::{cell::RefCell, rc::Rc};
 
+use super::evaluator::EvaluationError;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct SourceInfo {
     pub line: u64,
@@ -52,7 +54,10 @@ pub enum ImmediateValue {
     Boolean(bool),
     Closure(Type, Rc<Env<ImmediateValue>>, Vec<String>, Box<Statement>),
     Array(Type, InternalArrayRepresentation),
-    NativeFunction(Type, fn(Vec<ImmediateValue>) -> ImmediateValue),
+    NativeFunction(
+        Type,
+        fn(Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>,
+    ),
     Void,
 }
 

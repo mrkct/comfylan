@@ -1,6 +1,8 @@
 use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
 use std::rc::Rc;
 
+use super::{ast::SourceInfo, evaluator::EvaluationError};
+
 pub fn fill_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
     // I/O
     env.declare(
@@ -34,9 +36,14 @@ fn print_immediate_value(v: &ImmediateValue) {
         ImmediateValue::Boolean(b) => print!("{}", b),
         ImmediateValue::Array(_, a) => {
             print!("[");
-            for v in a.borrow().iter() {
+            let a_borrow = a.borrow();
+            let mut iter = a_borrow.iter();
+            if let Some(v) = iter.next() {
                 print_immediate_value(v);
+            }
+            for v in iter {
                 print!(", ");
+                print_immediate_value(v);
             }
             print!("]");
         }
@@ -46,17 +53,17 @@ fn print_immediate_value(v: &ImmediateValue) {
     }
 }
 
-fn native_print(args: Vec<ImmediateValue>) -> ImmediateValue {
+fn native_print(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
     for arg in args {
         print_immediate_value(&arg);
     }
-    ImmediateValue::Void
+    Ok(ImmediateValue::Void)
 }
 
-fn native_array_len(args: Vec<ImmediateValue>) -> ImmediateValue {
+fn native_array_len(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
     match args.get(0) {
         Some(ImmediateValue::Array(_, array)) => {
-            ImmediateValue::Integer(array.borrow().len() as i64)
+            Ok(ImmediateValue::Integer(array.borrow().len() as i64))
         },
         _ => panic!("Typechecker failed! Native function 'len' was called with an argument that is not an array")
     }
