@@ -346,6 +346,18 @@ impl Expression {
                 ),
                 error => error,
             },
+            Expression::ArrayInitializer(_, _, values) => {
+                let mut array = vec![];
+                array.reserve_exact(values.len());
+                for e in values {
+                    let value = e.eval(env)?;
+                    array.push(value);
+                }
+                Ok(ImmediateValue::Array(
+                    Type::Array(Box::new(Type::Integer)),
+                    Rc::new(RefCell::new(array)),
+                ))
+            }
             Expression::Identifier(info, name) => match env.cloning_lookup(name) {
                 Some(value) => Ok(value),
                 None => panic!(
