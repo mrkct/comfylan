@@ -1,0 +1,14 @@
+fn push(array: [int], x: int) -> void {
+    insert(array, len(array), x);
+}
+
+fn main(args: [string]) -> void {
+    var arr: [int] = [1, 2, 3];
+    print(arr, "\n");
+    push(arr, 1);
+    print(arr, "\n");
+    push(arr, 2);
+    print(arr, "\n");
+    insert(arr, 0, -1);
+    print(arr, "\n");
+}

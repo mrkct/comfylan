@@ -378,7 +378,7 @@ impl Expression {
                     "[{:?}]: Symbol '{}' was not found in the current scope",
                     info, name
                 ),
-            }
+            },
         }
     }
 
