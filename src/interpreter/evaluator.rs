@@ -318,6 +318,20 @@ impl Expression {
                     value.get_type(),
                 ),
             },
+            Expression::UnaryOperation(info, _, UnaryOperator::Negation, left) => {
+                match left.eval(env) {
+                    Ok(ImmediateValue::Integer(x)) => Ok(ImmediateValue::Integer(-x)),
+                    Ok(ImmediateValue::FloatingPoint(f)) => Ok(ImmediateValue::FloatingPoint(-f)),
+                    Ok(cant_negate) => {
+                        panic!(
+                            "[{:?}]: Cannot negate a value of type {:?}",
+                            *info,
+                            cant_negate.get_type()
+                        );
+                    }
+                    err => err,
+                }
+            }
             Expression::FunctionCall(info, _, function, args) => match function.eval(env) {
                 Ok(ImmediateValue::Closure(_, closure_env, args_names, statements)) => {
                     let function_context_env = Env::create_child(&closure_env);
@@ -364,8 +378,7 @@ impl Expression {
                     "[{:?}]: Symbol '{}' was not found in the current scope",
                     info, name
                 ),
-            },
-            _ => Err(EvaluationError::NotImplemented),
+            }
         }
     }
 
