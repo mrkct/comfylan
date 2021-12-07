@@ -448,19 +448,18 @@ impl Statement {
                 }
             }
             Statement::Block(_, statements) => {
-                let child_env = Env::create_child(env);
                 let mut last_returned_value = None;
                 for statement in statements {
-                    last_returned_value = statement.eval(&child_env)?;
+                    last_returned_value = statement.eval(env)?;
                 }
                 Ok(last_returned_value)
             }
             Statement::Return(_, expr) => Ok(Some(expr.eval(env)?)),
             Statement::If(info, condition, branch_true, branch_false) => {
                 match condition.eval(env) {
-                    Ok(ImmediateValue::Boolean(true)) => branch_true.eval(env),
+                    Ok(ImmediateValue::Boolean(true)) => branch_true.eval(&Env::create_child(env)),
                     Ok(ImmediateValue::Boolean(false)) => match branch_false {
-                        Some(branch_false) => branch_false.eval(env),
+                        Some(branch_false) => branch_false.eval(&Env::create_child(env)),
                         None => Ok(None),
                     },
                     Err(error) => Err(error),
@@ -475,7 +474,7 @@ impl Statement {
                 loop {
                     match condition.eval(env) {
                         Ok(ImmediateValue::Boolean(true)) => {
-                            repeat.eval(env)?;
+                            repeat.eval(&Env::create_child(env))?;
                         }
                         Ok(ImmediateValue::Boolean(false)) => {
                             break;
@@ -491,12 +490,13 @@ impl Statement {
                 Ok(None)
             }
             Statement::For(info, pre, condition, post, repeat) => {
-                pre.eval(env)?;
+                let child_env = Env::create_child(env);
+                pre.eval(&child_env)?;
                 loop {
-                    match condition.eval(env) {
+                    match condition.eval(&child_env) {
                         Ok(ImmediateValue::Boolean(true)) => {
-                            repeat.eval(env)?;
-                            post.eval(env)?;
+                            repeat.eval(&Env::create_child(&child_env))?;
+                            post.eval(&child_env)?;
                         }
                         Ok(ImmediateValue::Boolean(false)) => {
                             break;
@@ -509,7 +509,6 @@ impl Statement {
                         }
                     }
                 }
-                post.eval(env)?;
                 Ok(None)
             }
             Statement::InLineExpression(_, expr) => {
