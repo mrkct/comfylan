@@ -1,5 +1,5 @@
 use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
-use std::rc::Rc;
+use std::{rc::Rc, cell::RefCell};
 
 use super::{ast::SourceInfo, evaluator::EvaluationError};
 
@@ -40,6 +40,17 @@ pub fn fill_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
                 Box::new(Type::Void),
             ),
             native_array_insert,
+        ),
+        true,
+    );
+    env.declare(
+        "remove",
+        ImmediateValue::NativeFunction(
+            Type::Closure(
+                vec![Type::Array(Box::new(Type::Any)), Type::Integer],
+                Box::new(Type::Any),
+            ),
+            native_array_remove,
         ),
         true,
     );
@@ -86,32 +97,46 @@ fn native_array_len(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Evaluat
     }
 }
 
+fn validate_array_index(array: &Rc<RefCell<Vec<ImmediateValue>>>, index: i64) -> Result<usize, EvaluationError> {
+    let array_len = array.borrow().len();
+    if index < 0 {
+        return Err(EvaluationError::ArrayIndexOutOfBounds(
+            NATIVE_SOURCE_INFO,
+            array_len,
+            index,
+        ));
+    }
+
+    let usize_index: usize = index.try_into().map_err(|_| {
+        EvaluationError::ArrayIndexOutOfBounds(NATIVE_SOURCE_INFO, array_len, index)
+    })?;
+    if usize_index > array_len {
+        return Err(EvaluationError::ArrayIndexOutOfBounds(
+            NATIVE_SOURCE_INFO,
+            array_len,
+            index,
+        ));
+    }
+    Ok(usize_index)
+}
+
 fn native_array_insert(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
     match (args.get(0), args.get(1), args.get(2)) {
-        (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(i)), Some(v)) => {
-            let i = *i;
-            let array_len = array.borrow().len();
-            if i < 0 {
-                return Err(EvaluationError::ArrayIndexOutOfBounds(
-                    NATIVE_SOURCE_INFO,
-                    array_len,
-                    i,
-                ));
-            }
-
-            let index: usize = i.try_into().map_err(|_| {
-                EvaluationError::ArrayIndexOutOfBounds(NATIVE_SOURCE_INFO, array_len, i)
-            })?;
-            if i > array_len.try_into().unwrap() {
-                return Err(EvaluationError::ArrayIndexOutOfBounds(
-                    NATIVE_SOURCE_INFO,
-                    array_len,
-                    i,
-                ));
-            }
-            array.borrow_mut().insert(index, v.clone())
+        (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(index)), Some(v)) => {
+            let i = validate_array_index(array, *index)?;
+            array.borrow_mut().insert(i, v.clone())
         }
         _ => panic!("Typechecker failed! Native function 'insert' was called with bad arguments"),
     }
     Ok(ImmediateValue::Void)
+}
+
+fn native_array_remove(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+    match (args.get(0), args.get(1)) {
+        (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(index))) => {
+            let i = validate_array_index(array, *index)?;
+            Ok(array.borrow_mut().remove(i))
+        },
+        _ => panic!("Typechecker failed! Native function 'remove' was called with bad arguments")
+    }
 }
