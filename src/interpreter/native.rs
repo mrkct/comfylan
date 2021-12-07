@@ -1,5 +1,5 @@
 use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
-use std::{rc::Rc, cell::RefCell};
+use std::{cell::RefCell, rc::Rc};
 
 use super::{ast::SourceInfo, evaluator::EvaluationError};
 
@@ -97,7 +97,10 @@ fn native_array_len(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Evaluat
     }
 }
 
-fn validate_array_index(array: &Rc<RefCell<Vec<ImmediateValue>>>, index: i64) -> Result<usize, EvaluationError> {
+fn validate_array_index(
+    array: &Rc<RefCell<Vec<ImmediateValue>>>,
+    index: i64,
+) -> Result<usize, EvaluationError> {
     let array_len = array.borrow().len();
     if index < 0 {
         return Err(EvaluationError::ArrayIndexOutOfBounds(
@@ -136,7 +139,7 @@ fn native_array_remove(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Eval
         (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(index))) => {
             let i = validate_array_index(array, *index)?;
             Ok(array.borrow_mut().remove(i))
-        },
-        _ => panic!("Typechecker failed! Native function 'remove' was called with bad arguments")
+        }
+        _ => panic!("Typechecker failed! Native function 'remove' was called with bad arguments"),
     }
 }
