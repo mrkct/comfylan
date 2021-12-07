@@ -532,7 +532,10 @@ impl Token<'_> {
             TokenKind::FloatingPoint(f) => ImmediateValue::FloatingPoint(f),
             TokenKind::KeywordTrue => ImmediateValue::Boolean(true),
             TokenKind::KeywordFalse => ImmediateValue::Boolean(false),
-            TokenKind::String(s) => ImmediateValue::String(s.to_string()),
+            TokenKind::String(s) => {
+                // FIXME: This does not support writing '\\n' (escaping the '\' character)
+                ImmediateValue::String(s.replace(r#"\n"#, "\n").replace(r#"\t"#, "\t"))
+            },
             _ => panic!("Token {:?} was used successfully in a parse but expected to be converted to an immediate value", self)
         }
     }
