@@ -151,7 +151,22 @@ impl Statement {
 
                 let rvalue = match operator {
                     AssignmentOperator::Equal => right.eval(env)?,
-                    _ => unreachable!(),
+                    AssignmentOperator::AddEqual => {
+                        let right = right.eval(env)?;
+                        lvalue.to_expression().eval(env)?.add(&right)?
+                    }
+                    AssignmentOperator::SubEqual => {
+                        let right = right.eval(env)?;
+                        lvalue.to_expression().eval(env)?.sub(&right)?
+                    }
+                    AssignmentOperator::MulEqual => {
+                        let right = right.eval(env)?;
+                        lvalue.to_expression().eval(env)?.mul(&right)?
+                    }
+                    AssignmentOperator::DivEqual => {
+                        let right = right.eval(env)?;
+                        lvalue.to_expression().eval(env)?.div(&right)?
+                    }
                 };
 
                 match lvalue {
@@ -595,5 +610,74 @@ mod tests {
             env.cloning_lookup("result"),
             Some(ImmediateValue::Integer(5040))
         );
+    }
+
+    #[test]
+    fn assignment_operators() {
+        let env = Env::empty();
+
+        // var x = 1; x += 1;
+        let program = Statement::Block(
+            INFO,
+            vec![
+                *declare("x", 1),
+                Statement::Assignment(
+                    INFO,
+                    Expression::Identifier(INFO, "x".to_string()),
+                    AssignmentOperator::AddEqual,
+                    *intval(1),
+                ),
+            ],
+        );
+        assert!(program.eval(&env).is_ok());
+        assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(2)));
+
+        // var x = 3; x *= 3;
+        let program = Statement::Block(
+            INFO,
+            vec![
+                *declare("x", 3),
+                Statement::Assignment(
+                    INFO,
+                    Expression::Identifier(INFO, "x".to_string()),
+                    AssignmentOperator::MulEqual,
+                    *intval(3),
+                ),
+            ],
+        );
+        assert!(program.eval(&env).is_ok());
+        assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(9)));
+
+        // var x = 3; x -= 3;
+        let program = Statement::Block(
+            INFO,
+            vec![
+                *declare("x", 3),
+                Statement::Assignment(
+                    INFO,
+                    Expression::Identifier(INFO, "x".to_string()),
+                    AssignmentOperator::SubEqual,
+                    *intval(3),
+                ),
+            ],
+        );
+        assert!(program.eval(&env).is_ok());
+        assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(0)));
+
+        // var x = 3; x /= 3
+        let program = Statement::Block(
+            INFO,
+            vec![
+                *declare("x", 3),
+                Statement::Assignment(
+                    INFO,
+                    Expression::Identifier(INFO, "x".to_string()),
+                    AssignmentOperator::DivEqual,
+                    *intval(3),
+                ),
+            ],
+        );
+        assert!(program.eval(&env).is_ok());
+        assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(1)));
     }
 }
