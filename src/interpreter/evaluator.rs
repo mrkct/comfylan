@@ -4,309 +4,35 @@ use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug, PartialEq)]
 pub enum EvaluationError {
-    DivisionByZero(SourceInfo),
-    ArrayIndexOutOfBounds(SourceInfo, usize, i64),
-    NotImplemented,
+    DivisionByZero,
+    ArrayIndexOutOfBounds(usize, i64),
+    FatalError(String),
 }
 
 impl Expression {
     pub fn eval(&self, env: &Env<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
         match self {
             Expression::Value(immediate_value) => Ok(immediate_value.clone()),
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Add, right) => {
+            Expression::BinaryOperation(info, _, left, operator, right) => {
                 match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::Integer(x + y))
-                    }
-                    (Ok(ImmediateValue::FloatingPoint(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x + y as f64))
-                    }
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::FloatingPoint(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x as f64 + y))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(x)),
-                        Ok(ImmediateValue::FloatingPoint(y)),
-                    ) => Ok(ImmediateValue::FloatingPoint(x + y)),
-                    (Ok(ImmediateValue::String(left)), Ok(ImmediateValue::String(right))) => {
-                        Ok(ImmediateValue::String(left + &right))
-                    }
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot add values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Sub, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::Integer(x - y))
-                    }
-                    (Ok(ImmediateValue::FloatingPoint(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x - y as f64))
-                    }
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::FloatingPoint(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x as f64 - y))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(x)),
-                        Ok(ImmediateValue::FloatingPoint(y)),
-                    ) => Ok(ImmediateValue::FloatingPoint(x - y)),
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot subtract values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Mul, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::Integer(x * y))
-                    }
-                    (Ok(ImmediateValue::FloatingPoint(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x * y as f64))
-                    }
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::FloatingPoint(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x as f64 * y))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(x)),
-                        Ok(ImmediateValue::FloatingPoint(y)),
-                    ) => Ok(ImmediateValue::FloatingPoint(x * y)),
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot multiply values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Div, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (
-                        Ok(ImmediateValue::Integer(_) | ImmediateValue::FloatingPoint(_)),
-                        Ok(ImmediateValue::Integer(0) | ImmediateValue::FloatingPoint(0.0)),
-                    ) => Err(EvaluationError::DivisionByZero(*info)),
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::Integer(x / y))
-                    }
-                    (Ok(ImmediateValue::FloatingPoint(x)), Ok(ImmediateValue::Integer(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x / y as f64))
-                    }
-                    (Ok(ImmediateValue::Integer(x)), Ok(ImmediateValue::FloatingPoint(y))) => {
-                        Ok(ImmediateValue::FloatingPoint(x as f64 / y))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(x)),
-                        Ok(ImmediateValue::FloatingPoint(y)),
-                    ) => Ok(ImmediateValue::FloatingPoint(x / y)),
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot divide values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Equal, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(left)), Ok(ImmediateValue::Integer(right))) => {
-                        Ok(ImmediateValue::Boolean(left == right))
-                    }
-                    (Ok(ImmediateValue::String(left)), Ok(ImmediateValue::String(right))) => {
-                        Ok(ImmediateValue::Boolean(left == right))
-                    }
-                    (Ok(ImmediateValue::Boolean(left)), Ok(ImmediateValue::Boolean(right))) => {
-                        Ok(ImmediateValue::Boolean(left == right))
-                    }
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot compare values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::NotEqual, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(left)), Ok(ImmediateValue::Integer(right))) => {
-                        Ok(ImmediateValue::Boolean(left != right))
-                    }
-                    (Ok(ImmediateValue::String(left)), Ok(ImmediateValue::String(right))) => {
-                        Ok(ImmediateValue::Boolean(left != right))
-                    }
-                    (Ok(ImmediateValue::Boolean(left)), Ok(ImmediateValue::Boolean(right))) => {
-                        Ok(ImmediateValue::Boolean(left != right))
-                    }
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot compare values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::GreaterThan, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(left)), Ok(ImmediateValue::Integer(right))) => {
-                        Ok(ImmediateValue::Boolean(left > right))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(left)),
-                        Ok(ImmediateValue::FloatingPoint(right)),
-                    ) => Ok(ImmediateValue::Boolean(left > right)),
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot compare values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::GreaterThanEqual, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(left)), Ok(ImmediateValue::Integer(right))) => {
-                        Ok(ImmediateValue::Boolean(left >= right))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(left)),
-                        Ok(ImmediateValue::FloatingPoint(right)),
-                    ) => Ok(ImmediateValue::Boolean(left >= right)),
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot compare values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::LessThan, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(left)), Ok(ImmediateValue::Integer(right))) => {
-                        Ok(ImmediateValue::Boolean(left < right))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(left)),
-                        Ok(ImmediateValue::FloatingPoint(right)),
-                    ) => Ok(ImmediateValue::Boolean(left < right)),
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot compare values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::LessThanEqual, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Integer(left)), Ok(ImmediateValue::Integer(right))) => {
-                        Ok(ImmediateValue::Boolean(left <= right))
-                    }
-                    (
-                        Ok(ImmediateValue::FloatingPoint(left)),
-                        Ok(ImmediateValue::FloatingPoint(right)),
-                    ) => Ok(ImmediateValue::Boolean(left <= right)),
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                        "[{:?}]: Cannot compare values of types {:?} and {:?}",
-                        info,
-                        left.get_type(),
-                        right.get_type()
-                    ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::And, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Boolean(left)), Ok(ImmediateValue::Boolean(right))) => {
-                        Ok(ImmediateValue::Boolean(left && right))
-                    }
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                    "[{:?}]: Cannot apply boolean operator 'and' on values of types {:?} and {:?}",
-                    info,
-                    left.get_type(),
-                    right.get_type()
-                ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Or, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Boolean(left)), Ok(ImmediateValue::Boolean(right))) => {
-                        Ok(ImmediateValue::Boolean(left || right))
-                    }
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                    "[{:?}]: Cannot apply boolean operator 'or' on values of types {:?} and {:?}",
-                    info,
-                    left.get_type(),
-                    right.get_type()
-                ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Xor, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Boolean(left)), Ok(ImmediateValue::Boolean(right))) => {
-                        Ok(ImmediateValue::Boolean(left ^ right))
-                    }
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                    "[{:?}]: Cannot apply boolean operator 'xor' on values of types {:?} and {:?}",
-                    info,
-                    left.get_type(),
-                    right.get_type()
-                ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Nor, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Boolean(left)), Ok(ImmediateValue::Boolean(right))) => {
-                        Ok(ImmediateValue::Boolean(!(left || right)))
-                    }
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                    (Ok(left), Ok(right)) => panic!(
-                    "[{:?}]: Cannot apply boolean operator 'nor' on values of types {:?} and {:?}",
-                    info,
-                    left.get_type(),
-                    right.get_type()
-                ),
-                }
-            }
-            Expression::BinaryOperation(info, _, left, BinaryOperator::Indexing, right) => {
-                match (left.eval(env), right.eval(env)) {
-                    (Ok(ImmediateValue::Array(_, array)), Ok(ImmediateValue::Integer(index))) => {
-                        if let Some(value) = array.borrow().get(index as usize) {
-                            Ok(value.clone())
-                        } else {
-                            Err(EvaluationError::ArrayIndexOutOfBounds(
-                                *info,
-                                array.borrow().len(),
-                                index,
-                            ))
-                        }
-                    }
-                    (Ok(not_an_array), Ok(not_an_index)) => {
-                        panic!(
-                            "[{:?}]: Cannot index a value of type {:?} with a value of type {:?}",
-                            info,
-                            not_an_array.get_type(),
-                            not_an_index.get_type()
-                        )
-                    }
-                    (Err(e), _) => Err(e),
-                    (_, Err(e)) => Err(e),
+                    (Ok(left), Ok(right)) => match operator {
+                        BinaryOperator::Add => left.add(&right),
+                        BinaryOperator::Sub => left.sub(&right),
+                        BinaryOperator::Mul => left.mul(&right),
+                        BinaryOperator::Div => left.div(&right),
+                        BinaryOperator::Equal => left.equal(&right),
+                        BinaryOperator::NotEqual => left.not_equal(&right),
+                        BinaryOperator::GreaterThan => left.greater_than(&right),
+                        BinaryOperator::GreaterThanEqual => left.greater_than_equal(&right),
+                        BinaryOperator::LessThan => right.greater_than(&left),
+                        BinaryOperator::LessThanEqual => right.greater_than_equal(&left),
+                        BinaryOperator::And => left.boolean_and(&right),
+                        BinaryOperator::Or => left.boolean_or(&right),
+                        BinaryOperator::Nor => left.boolean_nor(&right),
+                        BinaryOperator::Xor => left.boolean_xor(&right),
+                        BinaryOperator::Indexing => left.indexing(&right),
+                    },
+                    (error, _) => error,
                 }
             }
             Expression::UnaryOperation(info, _, UnaryOperator::Not, left) => match left.eval(env) {
@@ -421,8 +147,13 @@ impl Statement {
                 Err(error) => Err(error),
             },
             Statement::Assignment(info, left, operator, right) => {
-                let rvalue = right.eval(env)?;
                 let lvalue = left.eval_to_lvalue(env)?;
+
+                let rvalue = match operator {
+                    AssignmentOperator::Equal => right.eval(env)?,
+                    _ => unreachable!(),
+                };
+
                 match lvalue {
                     LValue::Identifier(symbol) => {
                         if env.assign(&symbol, rvalue).is_err() {
@@ -433,16 +164,14 @@ impl Statement {
                     LValue::IndexInArray(array, index) => {
                         let array_len = array.borrow().len();
                         let uindex: usize = index.try_into().map_err(|_| {
-                            EvaluationError::ArrayIndexOutOfBounds(*info, array_len, index)
+                            EvaluationError::ArrayIndexOutOfBounds(array_len, index)
                         })?;
                         match array.borrow_mut().get_mut(uindex) {
                             Some(array_cell) => {
                                 *array_cell = rvalue;
                                 Ok(None)
                             }
-                            None => Err(EvaluationError::ArrayIndexOutOfBounds(
-                                *info, array_len, index,
-                            )),
+                            None => Err(EvaluationError::ArrayIndexOutOfBounds(array_len, index)),
                         }
                     }
                 }
@@ -580,10 +309,7 @@ mod tests {
     fn divide_by_zero() {
         let e = Expression::BinaryOperation(INFO, None, intval(1), BinaryOperator::Div, intval(0));
         let env = Env::empty();
-        assert!(matches!(
-            e.eval(&env),
-            Err(EvaluationError::DivisionByZero(_))
-        ));
+        assert!(matches!(e.eval(&env), Err(EvaluationError::DivisionByZero)));
     }
 
     #[test]
@@ -711,7 +437,7 @@ mod tests {
         let env = Env::empty();
         assert!(matches!(
             e.eval(&env),
-            Err(EvaluationError::ArrayIndexOutOfBounds(_, 3, 3))
+            Err(EvaluationError::ArrayIndexOutOfBounds(3, 3))
         ));
     }
 

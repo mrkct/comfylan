@@ -3,12 +3,6 @@ use std::{cell::RefCell, rc::Rc};
 
 use super::{ast::SourceInfo, evaluator::EvaluationError};
 
-const NATIVE_SOURCE_INFO: SourceInfo = SourceInfo {
-    line: 0,
-    column: 0,
-    offset_in_source: 0,
-};
-
 pub fn fill_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
     // I/O
     env.declare(
@@ -103,22 +97,14 @@ fn validate_array_index(
 ) -> Result<usize, EvaluationError> {
     let array_len = array.borrow().len();
     if index < 0 {
-        return Err(EvaluationError::ArrayIndexOutOfBounds(
-            NATIVE_SOURCE_INFO,
-            array_len,
-            index,
-        ));
+        return Err(EvaluationError::ArrayIndexOutOfBounds(array_len, index));
     }
 
-    let usize_index: usize = index.try_into().map_err(|_| {
-        EvaluationError::ArrayIndexOutOfBounds(NATIVE_SOURCE_INFO, array_len, index)
-    })?;
+    let usize_index: usize = index
+        .try_into()
+        .map_err(|_| EvaluationError::ArrayIndexOutOfBounds(array_len, index))?;
     if usize_index > array_len {
-        return Err(EvaluationError::ArrayIndexOutOfBounds(
-            NATIVE_SOURCE_INFO,
-            array_len,
-            index,
-        ));
+        return Err(EvaluationError::ArrayIndexOutOfBounds(array_len, index));
     }
     Ok(usize_index)
 }
