@@ -29,7 +29,7 @@ P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
 P3Expr := P4Expr ( (+|-) P4Expr )*
 P4Expr := <P5Expr> ( (*|/) <P5Expr> )*
-P5Expr := - <Value> | <Value>[<Expr>] | <Value>( <Expr> (, <Expr>)* )
+P5Expr := (-|not) <Value> | <Value>[<Expr>] | <Value>( <Expr> (, <Expr>)* )
 Value := <Constant> | '(' <Expr> ')' | identifier
 Constant := integer | floating_point | string | KeywordTrue | KeywordFalse
 */
@@ -220,7 +220,7 @@ impl<'a> Parser<'a> {
 
     fn parse_p5expr(&mut self) -> Option<Box<Expression>> {
         let parsing_methods = &[
-            Self::parse_unary_minus,
+            Self::parse_unary_expression,
             Self::parse_array_indexing,
             Self::parse_function_call,
             Self::parse_array_initialization,
@@ -235,14 +235,18 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_unary_minus(&mut self) -> Option<Box<Expression>> {
+    fn parse_unary_expression(&mut self) -> Option<Box<Expression>> {
         rewinding_if_none!(self, {
-            try_consume!(self.tokens, TokenKind::Minus)?;
+            let operator = try_consume!(self.tokens, TokenKind::Minus | TokenKind::KeywordNot)?;
             let value = self.parse_value()?;
             Some(Box::new(Expression::UnaryOperation(
                 TODO_INFO,
                 None,
-                UnaryOperator::Negation,
+                match operator.kind {
+                    TokenKind::Minus => UnaryOperator::Negation,
+                    TokenKind::KeywordNot => UnaryOperator::Not,
+                    _ => unreachable!(),
+                },
                 value,
             )))
         })
@@ -1243,6 +1247,34 @@ mod tests {
                 BinaryOperator::Sub,
                 intval(1)
             ))
+        )
+    }
+
+    #[test]
+    fn unary_not() {
+        let tokens = vec![
+            tok(TokenKind::KeywordNot),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Identifier("len")),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::Identifier("array")),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::CloseRoundBracket),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(Box::new(Expression::UnaryOperation(
+                TODO_INFO,
+                None,
+                UnaryOperator::Not,
+                Box::new(Expression::FunctionCall(
+                    TODO_INFO,
+                    None,
+                    ident("len"),
+                    vec![*ident("array")]
+                ))
+            )))
         )
     }
 }
