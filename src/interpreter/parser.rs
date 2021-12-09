@@ -286,14 +286,16 @@ impl<'a> Parser<'a> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordLet)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
-            try_consume!(self.tokens, TokenKind::Colon)?;
-            let declared_type = self.parse_type()?;
+            let declared_type = rewinding_if_none!(self, {
+                try_consume!(self.tokens, TokenKind::Colon)?;
+                self.parse_type()
+            });
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
             Some(Box::new(Statement::Declaration(
                 TODO_INFO,
                 name.clone_identifiers_string(),
-                Some(*declared_type),
+                declared_type.map(|t| *t),
                 true,
                 *expr,
             )))
@@ -304,14 +306,16 @@ impl<'a> Parser<'a> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordVar)?;
             let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
-            try_consume!(self.tokens, TokenKind::Colon)?;
-            let declared_type = self.parse_type()?;
+            let declared_type = rewinding_if_none!(self, {
+                try_consume!(self.tokens, TokenKind::Colon)?;
+                self.parse_type()
+            });
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
             Some(Box::new(Statement::Declaration(
                 TODO_INFO,
                 name.clone_identifiers_string(),
-                Some(*declared_type),
+                declared_type.map(|t| *t),
                 false,
                 *expr,
             )))
@@ -946,6 +950,27 @@ mod tests {
                 *binop(intval(1), BinaryOperator::Add, intval(1))
             )))
         );
+
+        let tokens = [
+            tok(TokenKind::KeywordLet),
+            tok(TokenKind::Identifier("myval")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(1)),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_let_declaration(),
+            Some(Box::new(Statement::Declaration(
+                I,
+                "myval".to_string(),
+                None,
+                true,
+                *binop(intval(1), BinaryOperator::Add, intval(1))
+            )))
+        );
     }
 
     #[test]
@@ -968,6 +993,27 @@ mod tests {
                 I,
                 "myval".to_string(),
                 Some(Type::Integer),
+                false,
+                *binop(intval(1), BinaryOperator::Add, intval(1))
+            )))
+        );
+
+        let tokens = [
+            tok(TokenKind::KeywordVar),
+            tok(TokenKind::Identifier("myval")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Plus),
+            tok(TokenKind::Integer(1)),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_var_declaration(),
+            Some(Box::new(Statement::Declaration(
+                I,
+                "myval".to_string(),
+                None,
                 false,
                 *binop(intval(1), BinaryOperator::Add, intval(1))
             )))
