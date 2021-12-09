@@ -2,21 +2,13 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq)]
 pub struct Env<T: Clone> {
-    symbols: RefCell<HashMap<String, ValueInfo<T>>>,
+    symbols: RefCell<HashMap<String, T>>,
     parent_env: Option<Rc<Env<T>>>,
-}
-
-// FIXME: This becomes impossible to enforce with lookup returning a ref
-#[derive(Debug, PartialEq)]
-struct ValueInfo<T: Clone> {
-    immutable: bool,
-    value: T,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum EnvError {
     SymbolNotFound(String),
-    CannotAssignToImmutableValue(String),
 }
 
 impl<T: Clone> Env<T> {
@@ -36,9 +28,7 @@ impl<T: Clone> Env<T> {
     }
 
     pub fn declare(&self, symbol: &str, value: T, immutable: bool) {
-        self.symbols
-            .borrow_mut()
-            .insert(symbol.to_string(), ValueInfo { value, immutable });
+        self.symbols.borrow_mut().insert(symbol.to_string(), value);
     }
 
     pub fn assign(&self, symbol: &str, value: T) -> Result<(), EnvError> {
@@ -48,11 +38,8 @@ impl<T: Clone> Env<T> {
         ) {
             (None, None) => Err(EnvError::SymbolNotFound(symbol.to_string())),
             (None, Some(parent)) => parent.assign(symbol, value),
-            (Some(value_info), _) if value_info.immutable => {
-                Err(EnvError::CannotAssignToImmutableValue(symbol.to_string()))
-            }
-            (Some(value_info), _) => {
-                value_info.value = value;
+            (Some(value_ref), _) => {
+                *value_ref = value;
                 Ok(())
             }
         }
@@ -61,7 +48,7 @@ impl<T: Clone> Env<T> {
     pub fn lookup<U>(&self, symbol: &str, f: fn(Option<&T>) -> U) -> U {
         let borrowed_map = self.symbols.borrow();
         match (borrowed_map.get(symbol), self.parent_env.as_ref()) {
-            (Some(value_info), _) => f(Some(&value_info.value)),
+            (Some(value), _) => f(Some(value)),
             (None, Some(parent)) => parent.lookup(symbol, f),
             (None, None) => f(None),
         }
@@ -70,7 +57,7 @@ impl<T: Clone> Env<T> {
     pub fn lookup_mut<U>(&self, symbol: &str, f: fn(Option<&mut T>) -> U) -> U {
         let mut borrowed_map = self.symbols.borrow_mut();
         match (borrowed_map.get_mut(symbol), self.parent_env.as_ref()) {
-            (Some(value_info), _) => f(Some(&mut value_info.value)),
+            (Some(value), _) => f(Some(value)),
             (None, Some(parent)) => parent.lookup_mut(symbol, f),
             (None, None) => f(None),
         }
@@ -125,16 +112,6 @@ mod tests {
         let _ = child.declare("myval", 2, false);
         assert_eq!(parent.cloning_lookup("myval"), Some(1));
         assert_eq!(child.cloning_lookup("myval"), Some(2));
-    }
-
-    #[test]
-    fn assign_to_const_fails() {
-        let parent = Env::empty();
-        let _ = parent.declare("myval", 1, true);
-        assert_eq!(
-            parent.assign("myval", 2),
-            Err(EnvError::CannotAssignToImmutableValue("myval".to_string()))
-        );
     }
 
     #[test]
