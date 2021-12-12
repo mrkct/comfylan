@@ -146,7 +146,7 @@ impl Statement {
                 }
                 Err(error) => Err(error),
             },
-            Statement::Assignment(info, left, operator, right) => {
+            Statement::Assignment(_info, left, operator, right) => {
                 let lvalue = left.eval_to_lvalue(env)?;
 
                 let rvalue = match operator {
@@ -195,6 +195,9 @@ impl Statement {
                 let mut last_returned_value = None;
                 for statement in statements {
                     last_returned_value = statement.eval(env)?;
+                    if last_returned_value.is_some() {
+                        break;
+                    }
                 }
                 Ok(last_returned_value)
             }
@@ -218,7 +221,10 @@ impl Statement {
                 loop {
                     match condition.eval(env) {
                         Ok(ImmediateValue::Boolean(true)) => {
-                            repeat.eval(&Env::create_child(env))?;
+                            let block_result = repeat.eval(&Env::create_child(env))?;
+                            if block_result.is_some() {
+                                return Ok(block_result);
+                            }
                         }
                         Ok(ImmediateValue::Boolean(false)) => {
                             break;
@@ -235,12 +241,19 @@ impl Statement {
             }
             Statement::For(info, pre, condition, post, repeat) => {
                 let child_env = Env::create_child(env);
-                pre.eval(&child_env)?;
+                if let v @ Some(_) = pre.eval(&child_env)? {
+                    return Ok(v);
+                }
+
                 loop {
                     match condition.eval(&child_env) {
                         Ok(ImmediateValue::Boolean(true)) => {
-                            repeat.eval(&Env::create_child(&child_env))?;
-                            post.eval(&child_env)?;
+                            if let v @ Some(_) = repeat.eval(&Env::create_child(&child_env))? {
+                                return Ok(v);
+                            }
+                            if let v @ Some(_) = post.eval(&child_env)? {
+                                return Ok(v);
+                            }
                         }
                         Ok(ImmediateValue::Boolean(false)) => {
                             break;
