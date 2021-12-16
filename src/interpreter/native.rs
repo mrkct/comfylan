@@ -3,50 +3,38 @@ use std::{cell::RefCell, rc::Rc};
 
 use super::{ast::SourceInfo, evaluator::EvaluationError};
 
-pub fn fill_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
+pub fn fill_env_with_native_functions(env: &Rc<Env<ImmediateValue>>, type_env: &Rc<Env<Type>>) {
+    let declare = |f, name, args: Vec<Type>, return_type| {
+        let signature = Type::Closure(args, Box::new(return_type));
+        env.declare(
+            name,
+            ImmediateValue::NativeFunction(signature.clone(), f),
+            true,
+        );
+        type_env.declare(name, signature, true);
+    };
+
     // I/O
-    env.declare(
-        "print",
-        ImmediateValue::NativeFunction(
-            Type::Closure(vec![Type::Array(Box::new(Type::Any))], Box::new(Type::Void)),
-            native_print,
-        ),
-        true,
-    );
+    declare(native_print, "print", vec![], Type::Void);
 
     // Array operations
-    env.declare(
+    declare(
+        native_array_len,
         "len",
-        ImmediateValue::NativeFunction(
-            Type::Closure(
-                vec![Type::Array(Box::new(Type::Any))],
-                Box::new(Type::Integer),
-            ),
-            native_array_len,
-        ),
-        true,
+        vec![Type::Array(Box::new(Type::Any))],
+        Type::Integer,
     );
-    env.declare(
+    declare(
+        native_array_insert,
         "insert",
-        ImmediateValue::NativeFunction(
-            Type::Closure(
-                vec![Type::Array(Box::new(Type::Any)), Type::Integer, Type::Any],
-                Box::new(Type::Void),
-            ),
-            native_array_insert,
-        ),
-        true,
+        vec![Type::Array(Box::new(Type::Any)), Type::Integer, Type::Any],
+        Type::Void,
     );
-    env.declare(
+    declare(
+        native_array_remove,
         "remove",
-        ImmediateValue::NativeFunction(
-            Type::Closure(
-                vec![Type::Array(Box::new(Type::Any)), Type::Integer],
-                Box::new(Type::Any),
-            ),
-            native_array_remove,
-        ),
-        true,
+        vec![Type::Array(Box::new(Type::Any)), Type::Integer],
+        Type::Void,
     );
 }
 

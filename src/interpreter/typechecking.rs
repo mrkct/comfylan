@@ -1,4 +1,5 @@
 use crate::interpreter::{ast::*, environment::*};
+use std::{borrow::BorrowMut, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type {
@@ -90,9 +91,32 @@ pub enum TypeError {
     CannotApplyBinaryOperation(Type, BinaryOperator, Type),
     CannotApplyUnaryOperation(UnaryOperator, Type),
     WrongArgumentNumberToFunctionCall(usize, usize),
+    CannotFindCommonType(Vec<Type>),
+    MismatchedReturnType(Type, Type),
 }
 
-pub fn eval_type_of_expression(
+fn find_closest_common_parent_type(types: &[Type]) -> Option<Type> {
+    // TODO: This is a super stupid and bad implementation
+    if types.is_empty() {
+        return None;
+    }
+
+    let mut highest_type = types.first().unwrap();
+    for t in types {
+        if highest_type.is_subtype_of(t) {
+            highest_type = t;
+        }
+    }
+
+    for t in types {
+        if !t.is_subtype_of(highest_type) {
+            return None;
+        }
+    }
+    Some(highest_type.clone())
+}
+
+fn eval_type_of_expression(
     env: &Env<Type>,
     expression: &Expression,
 ) -> Result<Type, Vec<TypeError>> {
@@ -231,6 +255,264 @@ fn eval_types_or_collect_errors(
         Ok(collected_types)
     } else {
         Err(collected_errors)
+    }
+}
+
+fn typecheck_or_collect_errors(
+    env: &mut Rc<Env<Type>>,
+    statement: &Statement,
+    errors: &mut Vec<TypeError>,
+) {
+    if let Err(mut e) = typecheck_statement(env, statement) {
+        errors.append(&mut e);
+    }
+}
+
+fn typecheck_statement(
+    env: &mut Rc<Env<Type>>,
+    statement: &Statement,
+) -> Result<Option<Type>, Vec<TypeError>> {
+    let verify_expr_type_or_collect_errors =
+        |env, expr, expected_type, errors: &mut Vec<TypeError>| {
+            match eval_type_of_expression(env, expr) {
+                Ok(t) if t.is_subtype_of(&expected_type) => {}
+                Ok(t) => {
+                    errors.push(TypeError::MismatchedTypes(expected_type, t));
+                }
+                Err(mut e) => {
+                    errors.append(&mut e);
+                }
+            };
+        };
+
+    match statement {
+        Statement::Declaration(_, name, expected_type, _, expression) => {
+            let actual_type = eval_type_of_expression(env, expression)?;
+            match (expected_type, actual_type) {
+                (Some(expected), actual) if actual.is_subtype_of(expected) => {
+                    env.borrow_mut().declare(name, expected.clone(), false);
+                    Ok(None)
+                }
+                (Some(expected), actual) => {
+                    Err(vec![TypeError::MismatchedTypes(expected.clone(), actual)])
+                }
+                (None, actual) => {
+                    env.borrow_mut().declare(name, actual, false);
+                    Ok(None)
+                }
+            }
+        }
+        Statement::Assignment(_, lvalue, op, rvalue) => {
+            match (
+                eval_type_of_expression(env, lvalue),
+                eval_type_of_expression(env, rvalue),
+            ) {
+                (Ok(left), Ok(right)) => match op {
+                    AssignmentOperator::Equal => {
+                        if right.is_subtype_of(&left) {
+                            Ok(None)
+                        } else {
+                            Err(vec![TypeError::MismatchedTypes(left, right)])
+                        }
+                    }
+                    AssignmentOperator::AddEqual => {
+                        if BinaryOperator::Add.get_type(&left, &right).is_some() {
+                            Ok(None)
+                        } else {
+                            Err(vec![TypeError::CannotApplyBinaryOperation(
+                                left,
+                                BinaryOperator::Add,
+                                right,
+                            )])
+                        }
+                    }
+                    AssignmentOperator::SubEqual => {
+                        if BinaryOperator::Sub.get_type(&left, &right).is_some() {
+                            Ok(None)
+                        } else {
+                            Err(vec![TypeError::CannotApplyBinaryOperation(
+                                left,
+                                BinaryOperator::Sub,
+                                right,
+                            )])
+                        }
+                    }
+                    AssignmentOperator::MulEqual => {
+                        if BinaryOperator::Mul.get_type(&left, &right).is_some() {
+                            Ok(None)
+                        } else {
+                            Err(vec![TypeError::CannotApplyBinaryOperation(
+                                left,
+                                BinaryOperator::Mul,
+                                right,
+                            )])
+                        }
+                    }
+                    AssignmentOperator::DivEqual => {
+                        if BinaryOperator::Div.get_type(&left, &right).is_some() {
+                            Ok(None)
+                        } else {
+                            Err(vec![TypeError::CannotApplyBinaryOperation(
+                                left,
+                                BinaryOperator::Div,
+                                right,
+                            )])
+                        }
+                    }
+                },
+                (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err(e),
+                (Err(mut e1), Err(mut e2)) => {
+                    e1.append(&mut e2);
+                    Err(e1)
+                }
+            }
+        }
+        Statement::If(_, expected_bool_expr, branch_true, branch_false) => {
+            let mut errors = vec![];
+            verify_expr_type_or_collect_errors(env, expected_bool_expr, Type::Boolean, &mut errors);
+            {
+                let mut child = Env::create_child(env);
+                typecheck_or_collect_errors(&mut child, branch_true, &mut errors);
+            }
+            {
+                let mut child = Env::create_child(env);
+                if let Some(branch_false) = branch_false {
+                    typecheck_or_collect_errors(&mut child, branch_false, &mut errors);
+                }
+            }
+
+            if errors.is_empty() {
+                Ok(None)
+            } else {
+                Err(errors)
+            }
+        }
+        Statement::While(_, expected_bool_expr, repeating_statement) => {
+            let mut errors = vec![];
+            verify_expr_type_or_collect_errors(env, expected_bool_expr, Type::Boolean, &mut errors);
+            {
+                let mut child = Env::create_child(env);
+                typecheck_or_collect_errors(&mut child, repeating_statement, &mut errors);
+            }
+
+            if errors.is_empty() {
+                Ok(None)
+            } else {
+                Err(errors)
+            }
+        }
+        Statement::For(_, pre, expected_bool_expr, post, repeating_statement) => {
+            let mut errors = vec![];
+            {
+                let mut child = Env::create_child(env);
+                typecheck_or_collect_errors(&mut child, pre, &mut errors);
+                verify_expr_type_or_collect_errors(
+                    &mut child,
+                    expected_bool_expr,
+                    Type::Boolean,
+                    &mut errors,
+                );
+                typecheck_or_collect_errors(&mut child, post, &mut errors);
+                typecheck_or_collect_errors(&mut child, repeating_statement, &mut errors);
+            }
+            if errors.is_empty() {
+                Ok(None)
+            } else {
+                Err(errors)
+            }
+        }
+        Statement::InLineExpression(_, expr) => match eval_type_of_expression(env, expr) {
+            Ok(_) => Ok(None),
+            Err(errors) => Err(errors),
+        },
+        Statement::Return(_, expr) => match eval_type_of_expression(env, expr) {
+            Ok(t) => Ok(Some(t)),
+            Err(errors) => Err(errors),
+        },
+        Statement::Block(_, statements) => {
+            let mut collected_errors = vec![];
+            let mut collected_return_types = vec![];
+
+            for statement in statements {
+                match typecheck_statement(env, statement) {
+                    Ok(Some(t)) => collected_return_types.push(t),
+                    Ok(None) => {}
+                    Err(mut errors) => collected_errors.append(&mut errors),
+                }
+            }
+
+            if collected_errors.is_empty() {
+                if collected_return_types.is_empty() {
+                    Ok(Some(Type::Void))
+                } else if let Some(common_type) =
+                    find_closest_common_parent_type(&collected_return_types)
+                {
+                    Ok(Some(common_type))
+                } else {
+                    Err(vec![TypeError::CannotFindCommonType(
+                        collected_return_types,
+                    )])
+                }
+            } else {
+                Err(collected_errors)
+            }
+        }
+    }
+}
+
+fn typecheck_top_level_declaration(
+    env: &Rc<Env<Type>>,
+    def: &TopLevelDeclaration,
+) -> Result<(), Vec<TypeError>> {
+    match def {
+        TopLevelDeclaration::Function(
+            _,
+            Type::Closure(arg_types, return_type),
+            _,
+            arg_names,
+            statement,
+        ) => {
+            let mut child = Env::create_child(env);
+            for (argname, argtype) in arg_names.iter().zip(arg_types.iter()) {
+                child.declare(argname, argtype.clone(), true);
+            }
+            match typecheck_statement(&mut child, statement) {
+                Ok(Some(t)) if t.is_subtype_of(return_type) => Ok(()),
+                Ok(Some(t)) => Err(vec![TypeError::MismatchedReturnType(
+                    *return_type.clone(),
+                    t,
+                )]),
+                Err(errors) => Err(errors),
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub fn typecheck_program(
+    global_env: &mut Rc<Env<Type>>,
+    top_level_declarations: &[TopLevelDeclaration],
+) -> Result<(), Vec<TypeError>> {
+    for decl in top_level_declarations {
+        match decl {
+            TopLevelDeclaration::Function(_, ftype, name, _, _) => {
+                global_env.declare(name, ftype.clone(), true);
+            }
+        }
+    }
+
+    let mut errors = vec![];
+    for decl in top_level_declarations {
+        if let Err(mut e) = typecheck_top_level_declaration(global_env, decl) {
+            errors.append(&mut e);
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
 }
 
