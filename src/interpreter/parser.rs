@@ -423,6 +423,7 @@ impl<'a> Parser<'a> {
                 "float" => Box::new(Type::FloatingPoint),
                 "bool" => Box::new(Type::Boolean),
                 "string" => Box::new(Type::String),
+                "void" => Box::new(Type::Void),
                 _ => Box::new(Type::UserDefined(type_name)),
             })
         }
