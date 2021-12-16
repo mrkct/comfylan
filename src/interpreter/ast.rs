@@ -108,14 +108,7 @@ pub enum Statement {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TopLevelDeclaration {
-    Function(
-        SourceInfo,
-        Option<Type>,
-        String,
-        Vec<(String, Type)>,
-        Type,
-        Statement,
-    ),
+    Function(SourceInfo, Type, String, Vec<String>, Statement),
 }
 
 impl ImmediateValue {

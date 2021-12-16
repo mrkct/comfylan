@@ -449,10 +449,18 @@ impl<'a> Parser<'a> {
             let function_code = self.parse_block()?;
             Some(TopLevelDeclaration::Function(
                 TODO_INFO,
-                None,
+                Type::Closure(
+                    collected_parameters
+                        .iter()
+                        .map(|(_, t)| t.clone())
+                        .collect(),
+                    return_type,
+                ),
                 function_name.clone_identifiers_string(),
-                collected_parameters,
-                *return_type,
+                collected_parameters
+                    .iter()
+                    .map(|(n, _)| n.clone())
+                    .collect(),
                 *function_code,
             ))
         })
@@ -1263,14 +1271,12 @@ mod tests {
             parser.parse_root_function_declaration(),
             Some(TopLevelDeclaration::Function(
                 I,
-                None,
+                Type::Closure(
+                    vec![Type::Integer, Type::Boolean, Type::String],
+                    Box::new(Type::UserDefined("CustomType".to_string()))
+                ),
                 "myfunc".to_string(),
-                vec![
-                    ("arg1".to_string(), Type::Integer),
-                    ("arg2".to_string(), Type::Boolean),
-                    ("arg3".to_string(), Type::String)
-                ],
-                Type::UserDefined("CustomType".to_string()),
+                vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()],
                 Statement::Block(I, vec![])
             ))
         );

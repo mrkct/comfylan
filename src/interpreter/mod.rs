@@ -35,22 +35,18 @@ pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Vec<TopLevelDeclarati
 
 fn fill_env_with_top_level_declarations(
     env: &Rc<Env<ImmediateValue>>,
-    top_level_declarations: Vec<TopLevelDeclaration>,
+    top_level_declarations: &[TopLevelDeclaration],
 ) {
-    for decl in top_level_declarations.into_iter() {
+    for decl in top_level_declarations {
         match decl {
-            TopLevelDeclaration::Function(_, _, name, args, _, code) => {
-                let argnames = args
-                    .iter()
-                    .map(|(argname, _)| argname.clone())
-                    .collect::<Vec<_>>();
+            TopLevelDeclaration::Function(_, _, name, argnames, code) => {
                 env.declare(
-                    &name,
+                    name,
                     ImmediateValue::Closure(
                         Type::Integer,
                         Rc::clone(env),
-                        argnames,
-                        Box::new(code),
+                        argnames.to_vec(),
+                        Box::new(code.clone()),
                     ),
                     true,
                 );
@@ -69,9 +65,17 @@ pub fn eval(
         offset_in_source: 0,
     };
     let root_env = Env::empty();
+    let mut type_env = Env::empty();
 
-    native::fill_env_with_native_functions(&root_env);
-    fill_env_with_top_level_declarations(&root_env, top_level_declarations);
+    native::fill_env_with_native_functions(&root_env, &type_env);
+    fill_env_with_top_level_declarations(&root_env, &top_level_declarations);
+
+    if let Err(type_errors) = typecheck_program(&mut type_env, &top_level_declarations) {
+        for error in type_errors {
+            println!("TypeError: {:?}", error);
+        }
+        return Ok(ImmediateValue::Void);
+    }
 
     Expression::FunctionCall(
         FAKE_SOURCE_INFO,
