@@ -13,7 +13,7 @@ impl Expression {
     pub fn eval(&self, env: &Env<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
         match self {
             Expression::Value(immediate_value) => Ok(immediate_value.clone()),
-            Expression::BinaryOperation(info, _, left, operator, right) => {
+            Expression::BinaryOperation(_info, _, left, operator, right) => {
                 match (left.eval(env), right.eval(env)) {
                     (Ok(left), Ok(right)) => match operator {
                         BinaryOperator::Add => left.add(&right),
@@ -139,7 +139,7 @@ impl Statement {
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
         match self {
-            Statement::Declaration(_, symbol, _, immutable, expr) => match expr.eval(env) {
+            Statement::Declaration(_info, symbol, _, immutable, expr) => match expr.eval(env) {
                 Ok(value) => {
                     env.declare(symbol, value, *immutable);
                     Ok(None)
