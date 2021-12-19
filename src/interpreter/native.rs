@@ -1,17 +1,13 @@
 use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
 use std::{cell::RefCell, rc::Rc};
 
-use super::{ast::SourceInfo, evaluator::EvaluationError};
+use super::evaluator::EvaluationError;
 
 pub fn fill_env_with_native_functions(env: &Rc<Env<ImmediateValue>>, type_env: &Rc<Env<Type>>) {
     let declare = |f, name, args: Vec<Type>, return_type| {
         let signature = Type::Closure(args, Box::new(return_type));
-        env.declare(
-            name,
-            ImmediateValue::NativeFunction(signature.clone(), f),
-            true,
-        );
-        type_env.declare(name, signature, true);
+        env.declare(name, ImmediateValue::NativeFunction(signature.clone(), f));
+        type_env.declare(name, signature);
     };
 
     // I/O

@@ -48,7 +48,6 @@ fn fill_env_with_top_level_declarations(
                         argnames.to_vec(),
                         Box::new(code.clone()),
                     ),
-                    true,
                 );
             }
         }

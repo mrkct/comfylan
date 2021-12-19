@@ -27,7 +27,7 @@ impl<T: Clone> Env<T> {
         })
     }
 
-    pub fn declare(&self, symbol: &str, value: T, immutable: bool) {
+    pub fn declare(&self, symbol: &str, value: T) {
         self.symbols.borrow_mut().insert(symbol.to_string(), value);
     }
 
@@ -75,14 +75,14 @@ mod tests {
     #[test]
     fn declare_and_lookup() {
         let env = Env::empty();
-        let _ = env.declare("myval", 1, false);
+        let _ = env.declare("myval", 1);
         assert_eq!(env.cloning_lookup("myval"), Some(1));
     }
 
     #[test]
     fn lookup_parent() {
         let parent = Env::empty();
-        let _ = parent.declare("myval", 1, false);
+        let _ = parent.declare("myval", 1);
         let child = Env::create_child(&parent);
         assert_eq!(child.cloning_lookup("myval"), Some(1));
     }
@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn assign_from_child_to_parent() {
         let parent = Env::empty();
-        let _ = parent.declare("myval", 1, false);
+        let _ = parent.declare("myval", 1);
         let child = Env::create_child(&parent);
         let _ = child.assign("myval", 2);
         assert_eq!(parent.cloning_lookup("myval"), Some(2));
@@ -100,16 +100,16 @@ mod tests {
     fn declare_variable_in_child() {
         let parent = Env::empty();
         let child = Env::create_child(&parent);
-        let _ = child.declare("myval", 1, false);
+        let _ = child.declare("myval", 1);
         assert_eq!(parent.cloning_lookup("myval"), None);
     }
 
     #[test]
     fn child_symbol_shadows_parents() {
         let parent = Env::empty();
-        let _ = parent.declare("myval", 1, true);
+        let _ = parent.declare("myval", 1);
         let child = Env::create_child(&parent);
-        let _ = child.declare("myval", 2, false);
+        let _ = child.declare("myval", 2);
         assert_eq!(parent.cloning_lookup("myval"), Some(1));
         assert_eq!(child.cloning_lookup("myval"), Some(2));
     }
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn assign_through_lookup_as_ref() {
         let parent = Env::empty();
-        parent.declare("hello", 1, true);
+        parent.declare("hello", 1);
         parent.lookup_mut("hello", |v| *v.unwrap() = 77);
         assert_eq!(parent.cloning_lookup("hello"), Some(77));
     }

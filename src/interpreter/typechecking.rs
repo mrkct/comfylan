@@ -290,14 +290,14 @@ fn typecheck_statement(
             let actual_type = eval_type_of_expression(env, expression)?;
             match (expected_type, actual_type) {
                 (Some(expected), actual) if actual.is_subtype_of(expected) => {
-                    env.borrow_mut().declare(name, expected.clone(), false);
+                    env.borrow_mut().declare(name, expected.clone());
                     Ok(None)
                 }
                 (Some(expected), actual) => {
                     Err(vec![TypeError::MismatchedTypes(expected.clone(), actual)])
                 }
                 (None, actual) => {
-                    env.borrow_mut().declare(name, actual, false);
+                    env.borrow_mut().declare(name, actual);
                     Ok(None)
                 }
             }
@@ -474,7 +474,7 @@ fn typecheck_top_level_declaration(
         ) => {
             let mut child = Env::create_child(env);
             for (argname, argtype) in arg_names.iter().zip(arg_types.iter()) {
-                child.declare(argname, argtype.clone(), true);
+                child.declare(argname, argtype.clone());
             }
             match typecheck_statement(&mut child, statement) {
                 Ok(Some(t)) if t.is_subtype_of(return_type) => Ok(()),
@@ -497,7 +497,7 @@ pub fn typecheck_program(
     for decl in top_level_declarations {
         match decl {
             TopLevelDeclaration::Function(_, ftype, name, _, _) => {
-                global_env.declare(name, ftype.clone(), true);
+                global_env.declare(name, ftype.clone());
             }
         }
     }
@@ -542,7 +542,7 @@ mod tests {
     #[test]
     fn add_integer_and_bool_var_fails() {
         let env = Env::empty();
-        env.declare("x", Type::Boolean, false);
+        env.declare("x", Type::Boolean);
 
         let e = Expression::BinaryOperation(
             INFO,
@@ -564,7 +564,7 @@ mod tests {
     #[test]
     fn or_between_bool_and_index_of_array_of_bools() {
         let env = Env::empty();
-        env.declare("x", Type::Array(Box::new(Type::Boolean)), false);
+        env.declare("x", Type::Array(Box::new(Type::Boolean)));
 
         let e = Expression::BinaryOperation(
             INFO,

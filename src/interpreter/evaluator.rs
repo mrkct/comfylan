@@ -63,7 +63,7 @@ impl Expression {
                     let function_context_env = Env::create_child(&closure_env);
                     for (argname, argexpr) in args_names.iter().zip(args.iter()) {
                         let argvalue = argexpr.eval(env)?;
-                        function_context_env.declare(argname, argvalue, false);
+                        function_context_env.declare(argname, argvalue);
                     }
 
                     statements
@@ -139,9 +139,9 @@ impl Statement {
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
         match self {
-            Statement::Declaration(_info, symbol, _, immutable, expr) => match expr.eval(env) {
+            Statement::Declaration(_info, symbol, _, _immutable, expr) => match expr.eval(env) {
                 Ok(value) => {
-                    env.declare(symbol, value, *immutable);
+                    env.declare(symbol, value);
                     Ok(None)
                 }
                 Err(error) => Err(error),
@@ -329,7 +329,7 @@ mod tests {
     fn simple_addition_with_identifier() {
         let e = binop(intval(1), BinaryOperator::Add, ident("x"));
         let env = Env::empty();
-        let _ = env.declare("x", ImmediateValue::Integer(2), true);
+        let _ = env.declare("x", ImmediateValue::Integer(2));
         assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(3)));
     }
 
@@ -482,7 +482,6 @@ mod tests {
                     ImmediateValue::Integer(9), // this element will be incremented by 1
                 ])),
             ),
-            false,
         );
 
         let program = Statement::Block(
@@ -564,7 +563,6 @@ mod tests {
         env.declare(
             "add_one",
             ImmediateValue::Closure(Type::Void, Rc::clone(&env), vec!["x".to_string()], function),
-            true,
         );
         let program = Statement::Declaration(
             INFO,
@@ -608,7 +606,6 @@ mod tests {
         env.declare(
             "factorial",
             ImmediateValue::Closure(Type::Void, Rc::clone(&env), vec!["x".to_string()], function),
-            true,
         );
         let program = Statement::Declaration(
             INFO,
