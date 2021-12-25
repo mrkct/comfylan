@@ -46,7 +46,7 @@ fn fill_env_with_top_level_declarations(
                         Type::Integer,
                         Rc::clone(env),
                         argnames.to_vec(),
-                        Box::new(code.clone()),
+                        code.clone(),
                     ),
                 );
             }

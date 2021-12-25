@@ -52,7 +52,7 @@ pub enum ImmediateValue {
     FloatingPoint(f64),
     String(String),
     Boolean(bool),
-    Closure(Type, Rc<Env<ImmediateValue>>, Vec<String>, Box<Statement>),
+    Closure(Type, Rc<Env<ImmediateValue>>, Vec<String>, Block),
     Array(Type, InternalArrayRepresentation),
     NativeFunction(
         Type,
@@ -85,30 +85,126 @@ pub enum Expression {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
-    Declaration(SourceInfo, String, Option<Type>, bool, Expression),
-    Assignment(SourceInfo, Expression, AssignmentOperator, Expression),
-    If(
-        SourceInfo,
-        Expression,
-        Box<Statement>,
-        Option<Box<Statement>>,
-    ),
-    While(SourceInfo, Expression, Box<Statement>),
-    For(
-        SourceInfo,
-        Box<Statement>,
-        Expression,
-        Box<Statement>,
-        Box<Statement>,
-    ),
-    InLineExpression(SourceInfo, Expression),
-    Return(SourceInfo, Expression),
-    Block(SourceInfo, Vec<Statement>),
+    Declaration(Declaration),
+    Assignment(Assignment),
+    If(If),
+    While(While),
+    For(For),
+    StatementExpression(StatementExpression),
+    Return(Return),
+    Block(Block),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Declaration {
+    pub _info: SourceInfo,
+    pub name: String,
+    pub expected_type: Option<Type>,
+    pub immutable: bool,
+    pub rvalue: Expression,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Assignment {
+    pub _info: SourceInfo,
+    pub lvalue: Expression, // FIXME: Change the type to be LValue directly
+    pub operator: AssignmentOperator,
+    pub rvalue: Expression,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct If {
+    pub _info: SourceInfo,
+    pub condition: Expression,
+    pub branch_true: Block,
+    pub branch_false: Option<Block>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct While {
+    pub _info: SourceInfo,
+    pub condition: Expression,
+    pub body: Block,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct For {
+    pub _info: SourceInfo,
+    pub pre: Block,
+    pub condition: Expression,
+    pub post: Block,
+    pub body: Block,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct StatementExpression {
+    pub _info: SourceInfo,
+    pub expression: Expression,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Return {
+    pub _info: SourceInfo,
+    pub expression: Expression,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Block {
+    pub _info: SourceInfo,
+    pub statements: Vec<Statement>,
+}
+
+impl From<Declaration> for Statement {
+    fn from(value: Declaration) -> Self {
+        Statement::Declaration(value)
+    }
+}
+
+impl From<Assignment> for Statement {
+    fn from(value: Assignment) -> Self {
+        Statement::Assignment(value)
+    }
+}
+
+impl From<If> for Statement {
+    fn from(value: If) -> Self {
+        Statement::If(value)
+    }
+}
+
+impl From<While> for Statement {
+    fn from(value: While) -> Self {
+        Statement::While(value)
+    }
+}
+
+impl From<For> for Statement {
+    fn from(value: For) -> Self {
+        Statement::For(value)
+    }
+}
+
+impl From<StatementExpression> for Statement {
+    fn from(value: StatementExpression) -> Self {
+        Statement::StatementExpression(value)
+    }
+}
+
+impl From<Return> for Statement {
+    fn from(value: Return) -> Self {
+        Statement::Return(value)
+    }
+}
+
+impl From<Block> for Statement {
+    fn from(value: Block) -> Self {
+        Statement::Block(value)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TopLevelDeclaration {
-    Function(SourceInfo, Type, String, Vec<String>, Statement),
+    Function(SourceInfo, Type, String, Vec<String>, Block),
 }
 
 impl ImmediateValue {

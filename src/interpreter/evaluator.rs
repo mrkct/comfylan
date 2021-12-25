@@ -133,145 +133,220 @@ impl Expression {
     }
 }
 
-impl Statement {
-    pub fn eval(
+trait Evaluable {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError>;
+}
+
+impl Evaluable for Declaration {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        match self.rvalue.eval(env) {
+            Ok(value) => {
+                env.declare(&self.name, value);
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+impl Evaluable for Assignment {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        let lvalue = self.lvalue.eval_to_lvalue(env)?;
+
+        let rvalue = match self.operator {
+            AssignmentOperator::Equal => self.rvalue.eval(env)?,
+            AssignmentOperator::AddEqual => {
+                let right = self.rvalue.eval(env)?;
+                lvalue.to_expression().eval(env)?.add(&right)?
+            }
+            AssignmentOperator::SubEqual => {
+                let right = self.rvalue.eval(env)?;
+                lvalue.to_expression().eval(env)?.sub(&right)?
+            }
+            AssignmentOperator::MulEqual => {
+                let right = self.rvalue.eval(env)?;
+                lvalue.to_expression().eval(env)?.mul(&right)?
+            }
+            AssignmentOperator::DivEqual => {
+                let right = self.rvalue.eval(env)?;
+                lvalue.to_expression().eval(env)?.div(&right)?
+            }
+        };
+
+        match lvalue {
+            LValue::Identifier(symbol) => {
+                if env.assign(&symbol, rvalue).is_err() {
+                    panic!("Assignment to non-declared variable {}", symbol);
+                }
+                Ok(None)
+            }
+            LValue::IndexInArray(array, index) => {
+                let array_len = array.borrow().len();
+                let uindex: usize = index
+                    .try_into()
+                    .map_err(|_| EvaluationError::ArrayIndexOutOfBounds(array_len, index))?;
+                match array.borrow_mut().get_mut(uindex) {
+                    Some(array_cell) => {
+                        *array_cell = rvalue;
+                        Ok(None)
+                    }
+                    None => Err(EvaluationError::ArrayIndexOutOfBounds(array_len, index)),
+                }
+            }
+        }
+    }
+}
+
+impl Evaluable for Block {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        let mut last_returned_value = None;
+        for statement in &self.statements {
+            last_returned_value = statement.eval(env)?;
+            if last_returned_value.is_some() {
+                break;
+            }
+        }
+        Ok(last_returned_value)
+    }
+}
+
+impl Evaluable for Return {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        Ok(Some(self.expression.eval(env)?))
+    }
+}
+
+impl Evaluable for If {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        match self.condition.eval(env) {
+            Ok(ImmediateValue::Boolean(true)) => self.branch_true.eval(&Env::create_child(env)),
+            Ok(ImmediateValue::Boolean(false)) => match &self.branch_false {
+                Some(branch_false) => branch_false.eval(&Env::create_child(env)),
+                None => Ok(None),
+            },
+            Err(error) => Err(error),
+            Ok(value) => panic!(
+                "[{:?}]: Expected type boolean in 'if' condition, got {:?} instead",
+                self._info,
+                value.get_type()
+            ),
+        }
+    }
+}
+
+impl Evaluable for While {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        loop {
+            match self.condition.eval(env) {
+                Ok(ImmediateValue::Boolean(true)) => {
+                    let block_result = self.body.eval(&Env::create_child(env))?;
+                    if block_result.is_some() {
+                        return Ok(block_result);
+                    }
+                }
+                Ok(ImmediateValue::Boolean(false)) => {
+                    break;
+                }
+                Ok(value) => {
+                    panic!(
+                        "[{:?}]: Expected type boolean in 'while' condition, got {:?} instead",
+                        self._info,
+                        value.get_type()
+                    );
+                }
+                Err(error) => {
+                    return Err(error);
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+impl Evaluable for For {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        let child_env = Env::create_child(env);
+        if let v @ Some(_) = self.pre.eval(&child_env)? {
+            return Ok(v);
+        }
+
+        loop {
+            match self.condition.eval(&child_env) {
+                Ok(ImmediateValue::Boolean(true)) => {
+                    if let v @ Some(_) = self.body.eval(&Env::create_child(&child_env))? {
+                        return Ok(v);
+                    }
+                    if let v @ Some(_) = self.post.eval(&child_env)? {
+                        return Ok(v);
+                    }
+                }
+                Ok(ImmediateValue::Boolean(false)) => {
+                    break;
+                }
+                Ok(value) => {
+                    panic!(
+                        "[{:?}]: Expected type boolean in 'for' condition, got {:?} instead",
+                        self._info,
+                        value.get_type()
+                    );
+                }
+                Err(error) => {
+                    return Err(error);
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+impl Evaluable for StatementExpression {
+    fn eval(
+        &self,
+        env: &Rc<Env<ImmediateValue>>,
+    ) -> Result<Option<ImmediateValue>, EvaluationError> {
+        self.expression.eval(env)?;
+        Ok(None)
+    }
+}
+
+impl Evaluable for Statement {
+    fn eval(
         &self,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
         match self {
-            Statement::Declaration(_info, symbol, _, _immutable, expr) => match expr.eval(env) {
-                Ok(value) => {
-                    env.declare(symbol, value);
-                    Ok(None)
-                }
-                Err(error) => Err(error),
-            },
-            Statement::Assignment(_info, left, operator, right) => {
-                let lvalue = left.eval_to_lvalue(env)?;
-
-                let rvalue = match operator {
-                    AssignmentOperator::Equal => right.eval(env)?,
-                    AssignmentOperator::AddEqual => {
-                        let right = right.eval(env)?;
-                        lvalue.to_expression().eval(env)?.add(&right)?
-                    }
-                    AssignmentOperator::SubEqual => {
-                        let right = right.eval(env)?;
-                        lvalue.to_expression().eval(env)?.sub(&right)?
-                    }
-                    AssignmentOperator::MulEqual => {
-                        let right = right.eval(env)?;
-                        lvalue.to_expression().eval(env)?.mul(&right)?
-                    }
-                    AssignmentOperator::DivEqual => {
-                        let right = right.eval(env)?;
-                        lvalue.to_expression().eval(env)?.div(&right)?
-                    }
-                };
-
-                match lvalue {
-                    LValue::Identifier(symbol) => {
-                        if env.assign(&symbol, rvalue).is_err() {
-                            panic!("Assignment to non-declared variable {}", symbol);
-                        }
-                        Ok(None)
-                    }
-                    LValue::IndexInArray(array, index) => {
-                        let array_len = array.borrow().len();
-                        let uindex: usize = index.try_into().map_err(|_| {
-                            EvaluationError::ArrayIndexOutOfBounds(array_len, index)
-                        })?;
-                        match array.borrow_mut().get_mut(uindex) {
-                            Some(array_cell) => {
-                                *array_cell = rvalue;
-                                Ok(None)
-                            }
-                            None => Err(EvaluationError::ArrayIndexOutOfBounds(array_len, index)),
-                        }
-                    }
-                }
-            }
-            Statement::Block(_, statements) => {
-                let mut last_returned_value = None;
-                for statement in statements {
-                    last_returned_value = statement.eval(env)?;
-                    if last_returned_value.is_some() {
-                        break;
-                    }
-                }
-                Ok(last_returned_value)
-            }
-            Statement::Return(_, expr) => Ok(Some(expr.eval(env)?)),
-            Statement::If(info, condition, branch_true, branch_false) => {
-                match condition.eval(env) {
-                    Ok(ImmediateValue::Boolean(true)) => branch_true.eval(&Env::create_child(env)),
-                    Ok(ImmediateValue::Boolean(false)) => match branch_false {
-                        Some(branch_false) => branch_false.eval(&Env::create_child(env)),
-                        None => Ok(None),
-                    },
-                    Err(error) => Err(error),
-                    Ok(value) => panic!(
-                        "[{:?}]: Expected type boolean in 'if' condition, got {:?} instead",
-                        info,
-                        value.get_type()
-                    ),
-                }
-            }
-            Statement::While(info, condition, repeat) => {
-                loop {
-                    match condition.eval(env) {
-                        Ok(ImmediateValue::Boolean(true)) => {
-                            let block_result = repeat.eval(&Env::create_child(env))?;
-                            if block_result.is_some() {
-                                return Ok(block_result);
-                            }
-                        }
-                        Ok(ImmediateValue::Boolean(false)) => {
-                            break;
-                        }
-                        Ok(value) => {
-                            panic!("[{:?}]: Expected type boolean in 'while' condition, got {:?} instead", info, value.get_type());
-                        }
-                        Err(error) => {
-                            return Err(error);
-                        }
-                    }
-                }
-                Ok(None)
-            }
-            Statement::For(info, pre, condition, post, repeat) => {
-                let child_env = Env::create_child(env);
-                if let v @ Some(_) = pre.eval(&child_env)? {
-                    return Ok(v);
-                }
-
-                loop {
-                    match condition.eval(&child_env) {
-                        Ok(ImmediateValue::Boolean(true)) => {
-                            if let v @ Some(_) = repeat.eval(&Env::create_child(&child_env))? {
-                                return Ok(v);
-                            }
-                            if let v @ Some(_) = post.eval(&child_env)? {
-                                return Ok(v);
-                            }
-                        }
-                        Ok(ImmediateValue::Boolean(false)) => {
-                            break;
-                        }
-                        Ok(value) => {
-                            panic!("[{:?}]: Expected type boolean in 'for' condition, got {:?} instead", info, value.get_type());
-                        }
-                        Err(error) => {
-                            return Err(error);
-                        }
-                    }
-                }
-                Ok(None)
-            }
-            Statement::InLineExpression(_, expr) => {
-                expr.eval(env)?;
-                Ok(None)
-            }
+            Statement::Declaration(x) => x.eval(env),
+            Statement::Assignment(x) => x.eval(env),
+            Statement::If(x) => x.eval(env),
+            Statement::For(x) => x.eval(env),
+            Statement::While(x) => x.eval(env),
+            Statement::Block(x) => x.eval(env),
+            Statement::StatementExpression(x) => x.eval(env),
+            Statement::Return(x) => x.eval(env),
         }
     }
 }
@@ -309,13 +384,13 @@ mod tests {
         )))
     }
     fn declare(name: &str, val: i64) -> Box<Statement> {
-        Box::new(Statement::Declaration(
-            INFO,
-            name.to_string(),
-            None,
-            false,
-            *intval(val),
-        ))
+        Box::new(Statement::Declaration(Declaration {
+            _info: INFO,
+            name: name.to_string(),
+            expected_type: None,
+            immutable: false,
+            rvalue: *intval(val),
+        }))
     }
 
     #[test]
@@ -484,17 +559,17 @@ mod tests {
             ),
         );
 
-        let program = Statement::Block(
-            INFO,
-            vec![Statement::Assignment(
-                INFO,
-                *binop(
+        let program = Block {
+            _info: INFO,
+            statements: vec![Statement::Assignment(Assignment {
+                _info: INFO,
+                lvalue: *binop(
                     ident("array"),
                     BinaryOperator::Indexing,
                     binop(intval(1), BinaryOperator::Add, intval(1)),
                 ),
-                AssignmentOperator::Equal,
-                *binop(
+                operator: AssignmentOperator::Equal,
+                rvalue: *binop(
                     intval(1),
                     BinaryOperator::Add,
                     binop(
@@ -503,8 +578,8 @@ mod tests {
                         binop(intval(1), BinaryOperator::Add, intval(1)),
                     ),
                 ),
-            )],
-        );
+            })],
+        };
 
         assert_eq!(program.eval(&env), Ok(None));
         assert_eq!(
@@ -522,30 +597,42 @@ mod tests {
 
     #[test]
     fn sum_of_first_10_values() {
-        let program = Statement::Block(
-            INFO,
-            vec![
+        let program = Statement::Block(Block {
+            _info: INFO,
+            statements: vec![
                 *declare("x", 0),
-                Statement::For(
-                    INFO,
-                    declare("i", 0),
-                    *binop(ident("i"), BinaryOperator::LessThan, intval(10)),
-                    Box::new(Statement::Assignment(
-                        INFO,
-                        *ident("i"),
-                        AssignmentOperator::Equal,
-                        *binop(ident("i"), BinaryOperator::Add, intval(1)),
-                    )),
-                    Box::new(Statement::Assignment(
-                        INFO,
-                        *ident("x"),
-                        AssignmentOperator::Equal,
-                        *binop(ident("x"), BinaryOperator::Add, ident("i")),
-                    )),
-                ),
-                Statement::Return(INFO, *ident("x")),
+                Statement::For(For {
+                    _info: INFO,
+                    pre: Block {
+                        _info: INFO,
+                        statements: vec![*declare("i", 0)],
+                    },
+                    condition: *binop(ident("i"), BinaryOperator::LessThan, intval(10)),
+                    post: Block {
+                        _info: INFO,
+                        statements: vec![Statement::Assignment(Assignment {
+                            _info: INFO,
+                            lvalue: *ident("i"),
+                            operator: AssignmentOperator::Equal,
+                            rvalue: *binop(ident("i"), BinaryOperator::Add, intval(1)),
+                        })],
+                    },
+                    body: Block {
+                        _info: INFO,
+                        statements: vec![Statement::Assignment(Assignment {
+                            _info: INFO,
+                            lvalue: *ident("x"),
+                            operator: AssignmentOperator::Equal,
+                            rvalue: *binop(ident("x"), BinaryOperator::Add, ident("i")),
+                        })],
+                    },
+                }),
+                Statement::Return(Return {
+                    _info: INFO,
+                    expression: *ident("x"),
+                }),
             ],
-        );
+        });
         let env = Env::empty();
         assert_eq!(program.eval(&env), Ok(Some(ImmediateValue::Integer(45))));
     }
@@ -553,24 +640,24 @@ mod tests {
     #[test]
     fn simple_function_call() {
         let env = Env::empty();
-        let function = Box::new(Statement::Block(
-            INFO,
-            vec![Statement::Return(
-                INFO,
-                *binop(ident("x"), BinaryOperator::Add, intval(1)),
-            )],
-        ));
+        let function = Block {
+            _info: INFO,
+            statements: vec![Statement::Return(Return {
+                _info: INFO,
+                expression: *binop(ident("x"), BinaryOperator::Add, intval(1)),
+            })],
+        };
         env.declare(
             "add_one",
             ImmediateValue::Closure(Type::Void, Rc::clone(&env), vec!["x".to_string()], function),
         );
-        let program = Statement::Declaration(
-            INFO,
-            "result".to_string(),
-            None,
-            true,
-            Expression::FunctionCall(INFO, None, ident("add_one"), vec![*intval(2)]),
-        );
+        let program = Statement::Declaration(Declaration {
+            _info: INFO,
+            name: "result".to_string(),
+            expected_type: None,
+            immutable: true,
+            rvalue: Expression::FunctionCall(INFO, None, ident("add_one"), vec![*intval(2)]),
+        });
 
         assert_eq!(program.eval(&env), Ok(None));
         assert_eq!(
@@ -582,38 +669,47 @@ mod tests {
     #[test]
     fn recursive_factorial_function_call() {
         let env = Env::empty();
-        let function = Box::new(Statement::Block(
-            INFO,
-            vec![Statement::If(
-                INFO,
-                *binop(ident("x"), BinaryOperator::Equal, intval(0)),
-                Box::new(Statement::Return(INFO, *intval(1))),
-                Some(Box::new(Statement::Return(
-                    INFO,
-                    *binop(
-                        Box::new(Expression::FunctionCall(
-                            INFO,
-                            None,
-                            ident("factorial"),
-                            vec![*binop(ident("x"), BinaryOperator::Sub, intval(1))],
-                        )),
-                        BinaryOperator::Mul,
-                        ident("x"),
-                    ),
-                ))),
-            )],
-        ));
+        let function = Block {
+            _info: INFO,
+            statements: vec![Statement::If(If {
+                _info: INFO,
+                condition: *binop(ident("x"), BinaryOperator::Equal, intval(0)),
+                branch_true: Block {
+                    _info: INFO,
+                    statements: vec![Statement::Return(Return {
+                        _info: INFO,
+                        expression: *intval(1),
+                    })],
+                },
+                branch_false: Some(Block {
+                    _info: INFO,
+                    statements: vec![Statement::Return(Return {
+                        _info: INFO,
+                        expression: *binop(
+                            Box::new(Expression::FunctionCall(
+                                INFO,
+                                None,
+                                ident("factorial"),
+                                vec![*binop(ident("x"), BinaryOperator::Sub, intval(1))],
+                            )),
+                            BinaryOperator::Mul,
+                            ident("x"),
+                        ),
+                    })],
+                }),
+            })],
+        };
         env.declare(
             "factorial",
             ImmediateValue::Closure(Type::Void, Rc::clone(&env), vec!["x".to_string()], function),
         );
-        let program = Statement::Declaration(
-            INFO,
-            "result".to_string(),
-            None,
-            true,
-            Expression::FunctionCall(INFO, None, ident("factorial"), vec![*intval(7)]),
-        );
+        let program = Declaration {
+            _info: INFO,
+            name: "result".to_string(),
+            expected_type: None,
+            immutable: true,
+            rvalue: Expression::FunctionCall(INFO, None, ident("factorial"), vec![*intval(7)]),
+        };
 
         assert_eq!(program.eval(&env), Ok(None));
         assert_eq!(
@@ -627,66 +723,66 @@ mod tests {
         let env = Env::empty();
 
         // var x = 1; x += 1;
-        let program = Statement::Block(
-            INFO,
-            vec![
+        let program = Block {
+            _info: INFO,
+            statements: vec![
                 *declare("x", 1),
-                Statement::Assignment(
-                    INFO,
-                    Expression::Identifier(INFO, "x".to_string()),
-                    AssignmentOperator::AddEqual,
-                    *intval(1),
-                ),
+                Statement::Assignment(Assignment {
+                    _info: INFO,
+                    lvalue: Expression::Identifier(INFO, "x".to_string()),
+                    operator: AssignmentOperator::AddEqual,
+                    rvalue: *intval(1),
+                }),
             ],
-        );
+        };
         assert!(program.eval(&env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(2)));
 
         // var x = 3; x *= 3;
-        let program = Statement::Block(
-            INFO,
-            vec![
+        let program = Block {
+            _info: INFO,
+            statements: vec![
                 *declare("x", 3),
-                Statement::Assignment(
-                    INFO,
-                    Expression::Identifier(INFO, "x".to_string()),
-                    AssignmentOperator::MulEqual,
-                    *intval(3),
-                ),
+                Statement::Assignment(Assignment {
+                    _info: INFO,
+                    lvalue: Expression::Identifier(INFO, "x".to_string()),
+                    operator: AssignmentOperator::MulEqual,
+                    rvalue: *intval(3),
+                }),
             ],
-        );
+        };
         assert!(program.eval(&env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(9)));
 
         // var x = 3; x -= 3;
-        let program = Statement::Block(
-            INFO,
-            vec![
+        let program = Block {
+            _info: INFO,
+            statements: vec![
                 *declare("x", 3),
-                Statement::Assignment(
-                    INFO,
-                    Expression::Identifier(INFO, "x".to_string()),
-                    AssignmentOperator::SubEqual,
-                    *intval(3),
-                ),
+                Statement::Assignment(Assignment {
+                    _info: INFO,
+                    lvalue: Expression::Identifier(INFO, "x".to_string()),
+                    operator: AssignmentOperator::SubEqual,
+                    rvalue: *intval(3),
+                }),
             ],
-        );
+        };
         assert!(program.eval(&env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(0)));
 
         // var x = 3; x /= 3
-        let program = Statement::Block(
-            INFO,
-            vec![
+        let program = Block {
+            _info: INFO,
+            statements: vec![
                 *declare("x", 3),
-                Statement::Assignment(
-                    INFO,
-                    Expression::Identifier(INFO, "x".to_string()),
-                    AssignmentOperator::DivEqual,
-                    *intval(3),
-                ),
+                Statement::Assignment(Assignment {
+                    _info: INFO,
+                    lvalue: Expression::Identifier(INFO, "x".to_string()),
+                    operator: AssignmentOperator::DivEqual,
+                    rvalue: *intval(3),
+                }),
             ],
-        );
+        };
         assert!(program.eval(&env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(1)));
     }

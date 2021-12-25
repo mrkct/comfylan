@@ -282,43 +282,56 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_let_declaration(&mut self) -> Option<Box<Statement>> {
+    fn parse_let_declaration(&mut self) -> Option<Declaration> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordLet)?;
-            let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            let name = match try_consume!(self.tokens, TokenKind::Identifier(_))? {
+                Token {
+                    kind: TokenKind::Identifier(name),
+                    ..
+                } => name,
+                _ => return None,
+            };
             let declared_type = rewinding_if_none!(self, {
                 try_consume!(self.tokens, TokenKind::Colon)?;
                 self.parse_type()
             });
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(Statement::Declaration(
-                TODO_INFO,
-                name.clone_identifiers_string(),
-                declared_type.map(|t| *t),
-                true,
-                *expr,
-            )))
+            Some(Declaration {
+                _info: TODO_INFO,
+                name: name.to_string(),
+                expected_type: declared_type.map(|t| *t),
+                immutable: true,
+                rvalue: *expr,
+            })
         })
     }
 
-    fn parse_var_declaration(&mut self) -> Option<Box<Statement>> {
+    fn parse_var_declaration(&mut self) -> Option<Declaration> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordVar)?;
-            let name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            let name = match try_consume!(self.tokens, TokenKind::Identifier(_))? {
+                Token {
+                    kind: TokenKind::Identifier(name),
+                    ..
+                } => name,
+                _ => return None,
+            };
+
             let declared_type = rewinding_if_none!(self, {
                 try_consume!(self.tokens, TokenKind::Colon)?;
                 self.parse_type()
             });
             try_consume!(self.tokens, TokenKind::Equal)?;
             let expr = self.parse_expr()?;
-            Some(Box::new(Statement::Declaration(
-                TODO_INFO,
-                name.clone_identifiers_string(),
-                declared_type.map(|t| *t),
-                false,
-                *expr,
-            )))
+            Some(Declaration {
+                _info: TODO_INFO,
+                name: name.to_string(),
+                expected_type: declared_type.map(|t| *t),
+                immutable: false,
+                rvalue: *expr,
+            })
         })
     }
 
@@ -334,76 +347,88 @@ impl<'a> Parser<'a> {
         Some(operator_token.as_assignment_operator())
     }
 
-    fn parse_assignment(&mut self) -> Option<Box<Statement>> {
+    fn parse_assignment(&mut self) -> Option<Assignment> {
         rewinding_if_none!(self, {
             // FIXME: Only a subset of expressions are valid lvalues
             let lvalue = self.parse_expr()?;
             let operator = self.parse_assignment_operator()?;
             let rvalue = self.parse_expr()?;
-            Some(Box::new(Statement::Assignment(
-                TODO_INFO, *lvalue, operator, *rvalue,
-            )))
+            Some(Assignment {
+                _info: TODO_INFO,
+                lvalue: *lvalue,
+                operator: operator,
+                rvalue: *rvalue,
+            })
         })
     }
 
-    fn parse_if(&mut self) -> Option<Box<Statement>> {
+    fn parse_if(&mut self) -> Option<If> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordIf)?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
             let condition = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
-            let true_branch = self.parse_block()?;
+            let branch_true = self.parse_block()?;
             match try_consume!(self.tokens, TokenKind::KeywordElse) {
-                None => Some(Box::new(Statement::If(
-                    TODO_INFO,
-                    *condition,
-                    true_branch,
-                    None,
-                ))),
+                None => Some(If {
+                    _info: TODO_INFO,
+                    condition: *condition,
+                    branch_true: branch_true,
+                    branch_false: None,
+                }),
                 _ => {
                     let false_branch = self.parse_block()?;
-                    Some(Box::new(Statement::If(
-                        TODO_INFO,
-                        *condition,
-                        true_branch,
-                        Some(false_branch),
-                    )))
+                    Some(If {
+                        _info: TODO_INFO,
+                        condition: *condition,
+                        branch_true: branch_true,
+                        branch_false: Some(false_branch),
+                    })
                 }
             }
         })
     }
 
-    fn parse_while(&mut self) -> Option<Box<Statement>> {
+    fn parse_while(&mut self) -> Option<While> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordWhile)?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
             let condition = self.parse_expr()?;
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
-            let loop_block = self.parse_block()?;
-            Some(Box::new(Statement::While(
-                TODO_INFO, *condition, loop_block,
-            )))
+            let body = self.parse_block()?;
+            Some(While {
+                _info: TODO_INFO,
+                condition: *condition,
+                body,
+            })
         })
     }
 
-    fn parse_for(&mut self) -> Option<Box<Statement>> {
+    fn parse_for(&mut self) -> Option<For> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFor)?;
             let pre = self.parse_block()?;
             let condition = self.parse_expr()?;
             let post = self.parse_block()?;
-            let loop_block = self.parse_block()?;
-            Some(Box::new(Statement::For(
-                TODO_INFO, pre, *condition, post, loop_block,
-            )))
+            let body = self.parse_block()?;
+            Some(For {
+                _info: TODO_INFO,
+                pre,
+                condition: *condition,
+                post,
+                body,
+            })
         })
     }
 
-    fn parse_return(&mut self) -> Option<Box<Statement>> {
+    fn parse_return(&mut self) -> Option<Return> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordReturn)?;
             let expression = self.parse_expr()?;
-            Some(Box::new(Statement::Return(TODO_INFO, *expression)))
+            Some(Return {
+                _info: TODO_INFO,
+                expression: *expression,
+            })
         })
     }
 
@@ -461,29 +486,32 @@ impl<'a> Parser<'a> {
                     .iter()
                     .map(|(n, _)| n.clone())
                     .collect(),
-                *function_code,
+                function_code,
             ))
         })
     }
 
-    fn parse_statement_expr(&mut self) -> Option<Box<Statement>> {
+    fn parse_statement_expr(&mut self) -> Option<StatementExpression> {
         let expr = self.parse_expr()?;
-        Some(Box::new(Statement::InLineExpression(TODO_INFO, *expr)))
+        Some(StatementExpression {
+            _info: TODO_INFO,
+            expression: *expr,
+        })
     }
 
-    fn parse_statement(&mut self) -> Option<Box<Statement>> {
-        let semicolon_terminated_statements = [
-            Self::parse_let_declaration,
-            Self::parse_var_declaration,
-            Self::parse_assignment,
-            Self::parse_return,
-            Self::parse_statement_expr,
+    fn parse_statement(&mut self) -> Option<Statement> {
+        let semicolon_terminated_statements: [fn(&mut Self) -> Option<Statement>; 5] = [
+            |myself| Some(Self::parse_let_declaration(myself)?.into()),
+            |myself| Some(Self::parse_var_declaration(myself)?.into()),
+            |myself| Some(Self::parse_assignment(myself)?.into()),
+            |myself| Some(Self::parse_return(myself)?.into()),
+            |myself| Some(Self::parse_statement_expr(myself)?.into()),
         ];
-        let block_terminated_statements = [
-            Self::parse_block,
-            Self::parse_while,
-            Self::parse_if,
-            Self::parse_for,
+        let block_terminated_statements: [fn(&mut Self) -> Option<Statement>; 4] = [
+            |myself| Some(Self::parse_block(myself)?.into()),
+            |myself| Some(Self::parse_while(myself)?.into()),
+            |myself| Some(Self::parse_if(myself)?.into()),
+            |myself| Some(Self::parse_for(myself)?.into()),
         ];
 
         for parsing_method in semicolon_terminated_statements {
@@ -508,15 +536,18 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_block(&mut self) -> Option<Box<Statement>> {
+    fn parse_block(&mut self) -> Option<Block> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::OpenCurlyBracket)?;
             let mut statements = vec![];
             while let Some(s) = self.parse_statement() {
-                statements.push(*s);
+                statements.push(s);
             }
             try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
-            Some(Box::new(Statement::Block(TODO_INFO, statements)))
+            Some(Block {
+                _info: TODO_INFO,
+                statements: statements,
+            })
         })
     }
 }
@@ -951,13 +982,13 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_let_declaration(),
-            Some(Box::new(Statement::Declaration(
-                I,
-                "myval".to_string(),
-                Some(Type::Integer),
-                true,
-                *binop(intval(1), BinaryOperator::Add, intval(1))
-            )))
+            Some(Declaration {
+                _info: I,
+                name: "myval".to_string(),
+                expected_type: Some(Type::Integer),
+                immutable: true,
+                rvalue: *binop(intval(1), BinaryOperator::Add, intval(1))
+            })
         );
 
         let tokens = [
@@ -972,13 +1003,13 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_let_declaration(),
-            Some(Box::new(Statement::Declaration(
-                I,
-                "myval".to_string(),
-                None,
-                true,
-                *binop(intval(1), BinaryOperator::Add, intval(1))
-            )))
+            Some(Declaration {
+                _info: I,
+                name: "myval".to_string(),
+                expected_type: None,
+                immutable: true,
+                rvalue: *binop(intval(1), BinaryOperator::Add, intval(1))
+            })
         );
     }
 
@@ -998,13 +1029,13 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_var_declaration(),
-            Some(Box::new(Statement::Declaration(
-                I,
-                "myval".to_string(),
-                Some(Type::Integer),
-                false,
-                *binop(intval(1), BinaryOperator::Add, intval(1))
-            )))
+            Some(Declaration {
+                _info: I,
+                name: "myval".to_string(),
+                expected_type: Some(Type::Integer),
+                immutable: false,
+                rvalue: *binop(intval(1), BinaryOperator::Add, intval(1))
+            })
         );
 
         let tokens = [
@@ -1019,13 +1050,13 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_var_declaration(),
-            Some(Box::new(Statement::Declaration(
-                I,
-                "myval".to_string(),
-                None,
-                false,
-                *binop(intval(1), BinaryOperator::Add, intval(1))
-            )))
+            Some(Declaration {
+                _info: I,
+                name: "myval".to_string(),
+                expected_type: None,
+                immutable: false,
+                rvalue: *binop(intval(1), BinaryOperator::Add, intval(1))
+            })
         );
     }
 
@@ -1042,12 +1073,12 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_assignment(),
-            Some(Box::new(Statement::Assignment(
-                I,
-                *ident("x"),
-                AssignmentOperator::Equal,
-                *binop(ident("x"), BinaryOperator::Add, intval(1))
-            )))
+            Some(Assignment {
+                _info: I,
+                lvalue: *ident("x"),
+                operator: AssignmentOperator::Equal,
+                rvalue: *binop(ident("x"), BinaryOperator::Add, intval(1))
+            })
         );
     }
 
@@ -1063,12 +1094,12 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_statement(),
-            Some(Box::new(Statement::Assignment(
-                I,
-                *ident("x"),
-                AssignmentOperator::Equal,
-                *intval(1)
-            )))
+            Some(Statement::Assignment(Assignment {
+                _info: I,
+                lvalue: *ident("x"),
+                operator: AssignmentOperator::Equal,
+                rvalue: *intval(1)
+            }))
         );
     }
 
@@ -1089,12 +1120,18 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
-            Some(Box::new(Statement::If(
-                I,
-                *boolval(true),
-                Box::new(Statement::Block(I, vec![])),
-                Some(Box::new(Statement::Block(I, vec![])))
-            )))
+            Some(If {
+                _info: I,
+                condition: *boolval(true),
+                branch_true: Block {
+                    _info: I,
+                    statements: vec![]
+                },
+                branch_false: Some(Block {
+                    _info: I,
+                    statements: vec![]
+                })
+            })
         );
     }
 
@@ -1112,12 +1149,15 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_if(),
-            Some(Box::new(Statement::If(
-                I,
-                *boolval(true),
-                Box::new(Statement::Block(I, vec![])),
-                None
-            )))
+            Some(If {
+                _info: I,
+                condition: *boolval(true),
+                branch_true: Block {
+                    _info: I,
+                    statements: vec![]
+                },
+                branch_false: None
+            })
         );
     }
 
@@ -1135,11 +1175,14 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_while(),
-            Some(Box::new(Statement::While(
-                I,
-                *boolval(true),
-                Box::new(Statement::Block(I, vec![]))
-            )))
+            Some(While {
+                _info: I,
+                condition: *boolval(true),
+                body: Block {
+                    _info: I,
+                    statements: vec![]
+                }
+            })
         );
     }
 
@@ -1161,13 +1204,22 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_for(),
-            Some(Box::new(Statement::For(
-                I,
-                Box::new(Statement::Block(I, vec![])),
-                *boolval(true),
-                Box::new(Statement::Block(I, vec![])),
-                Box::new(Statement::Block(I, vec![])),
-            )))
+            Some(For {
+                _info: I,
+                pre: Block {
+                    _info: I,
+                    statements: vec![]
+                },
+                condition: *boolval(true),
+                post: Block {
+                    _info: I,
+                    statements: vec![]
+                },
+                body: Block {
+                    _info: I,
+                    statements: vec![]
+                }
+            })
         );
     }
 
@@ -1178,7 +1230,10 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_return(),
-            Some(Box::new(Statement::Return(I, *intval(1))))
+            Some(Return {
+                _info: I,
+                expression: *intval(1)
+            })
         );
     }
 
@@ -1207,19 +1262,24 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_block(),
-            Some(Box::new(Statement::Block(
-                I,
-                vec![
-                    Statement::Assignment(I, *ident("x"), AssignmentOperator::Equal, *intval(1)),
-                    Statement::Declaration(
-                        I,
-                        "y".to_string(),
-                        Some(Type::Integer),
-                        true,
-                        *intval(2)
-                    )
+            Some(Block {
+                _info: I,
+                statements: vec![
+                    Statement::Assignment(Assignment {
+                        _info: I,
+                        lvalue: *ident("x"),
+                        operator: AssignmentOperator::Equal,
+                        rvalue: *intval(1)
+                    }),
+                    Statement::Declaration(Declaration {
+                        _info: I,
+                        name: "y".to_string(),
+                        expected_type: Some(Type::Integer),
+                        immutable: true,
+                        rvalue: *intval(2)
+                    })
                 ]
-            )))
+            })
         );
     }
 
@@ -1277,7 +1337,10 @@ mod tests {
                 ),
                 "myfunc".to_string(),
                 vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()],
-                Statement::Block(I, vec![])
+                Block {
+                    _info: I,
+                    statements: vec![]
+                }
             ))
         );
     }
