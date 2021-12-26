@@ -404,12 +404,50 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_statement_list(&mut self) -> Option<Block> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+
+            let statements = self.parse_token_separated_list_of(TokenKind::SemiColon, |myself| {
+                let allowed_statements: [fn(&mut Self) -> Option<Statement>; 5] = [
+                    |myself| Some(Self::parse_let_declaration(myself)?.into()),
+                    |myself| Some(Self::parse_var_declaration(myself)?.into()),
+                    |myself| Some(Self::parse_assignment(myself)?.into()),
+                    |myself| Some(Self::parse_return(myself)?.into()),
+                    |myself| Some(Self::parse_statement_expr(myself)?.into()),
+                ];
+                for parsing_method in allowed_statements {
+                    if let r @ Some(_) = parsing_method(myself) {
+                        return r;
+                    }
+                }
+                None
+            });
+
+            if let Some(statements) = statements {
+                try_consume!(self.tokens, TokenKind::SemiColon);
+                try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+                Some(Block {
+                    _info: TODO_INFO,
+                    statements,
+                })
+            } else {
+                None
+            }
+        })
+    }
+
     fn parse_for(&mut self) -> Option<For> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFor)?;
-            let pre = self.parse_block()?;
-            let condition = self.parse_expr()?;
-            let post = self.parse_block()?;
+            let pre = self.parse_statement_list()?;
+            let condition = rewinding_if_none!(self, {
+                try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
+                let condition = self.parse_expr()?;
+                try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
+                Some(condition)
+            })?;
+            let post = self.parse_statement_list()?;
             let body = self.parse_block()?;
             Some(For {
                 _info: TODO_INFO,
@@ -1190,13 +1228,13 @@ mod tests {
     fn parse_for() {
         let tokens = [
             tok(TokenKind::KeywordFor),
-            tok(TokenKind::OpenCurlyBracket),
-            tok(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::CloseRoundBracket),
             tok(TokenKind::OpenRoundBracket),
             tok(TokenKind::KeywordTrue),
             tok(TokenKind::CloseRoundBracket),
-            tok(TokenKind::OpenCurlyBracket),
-            tok(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::CloseRoundBracket),
             tok(TokenKind::OpenCurlyBracket),
             tok(TokenKind::CloseCurlyBracket),
         ];
