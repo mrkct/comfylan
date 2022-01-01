@@ -50,6 +50,20 @@ fn fill_env_with_top_level_declarations(
                     ),
                 );
             }
+            TopLevelDeclaration::StructDeclaration(
+                decl
+                @ StructDeclaration {
+                    ref name, fields, ..
+                },
+            ) => {
+                env.declare(
+                    name,
+                    ImmediateValue::NativeFunction(decl.clone().into(), |args| {
+                        // TODO: Actually implement this, right now it's hard
+                        Ok(ImmediateValue::Boolean(false))
+                    }),
+                );
+            }
         }
     }
 }

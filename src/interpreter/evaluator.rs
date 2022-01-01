@@ -105,6 +105,25 @@ impl Expression {
                     info, name
                 ),
             },
+            Expression::Accessor(info, struct_expr, field) => match struct_expr.eval(env) {
+                Ok(ImmediateValue::Struct(struct_type, contents)) => {
+                    if let Some(v) = contents.borrow().get(field) {
+                        Ok(v.clone())
+                    } else {
+                        panic!(
+                            "[{:?}]: Tried to access field '{}' of a struct with type {:?}",
+                            info, field, struct_type
+                        );
+                    }
+                }
+                Ok(not_a_struct) => {
+                    panic!(
+                        "[{:?}]: Tried to access field '{}' of a non-struct value ({:?})",
+                        info, field, not_a_struct
+                    );
+                }
+                errors => errors,
+            },
         }
     }
 
@@ -128,6 +147,18 @@ impl Expression {
                     }
                 }
             }
+            Expression::Accessor(info, struct_expr, field) => match struct_expr.eval(env) {
+                Ok(ImmediateValue::Struct(_, struct_repr)) => {
+                    Ok(LValue::Accessor(struct_repr, field.to_string()))
+                }
+                Ok(not_a_struct) => {
+                    panic!(
+                        "[{:?}]: Cannot access field {} of value {:?} and use it as an lvalue",
+                        info, field, not_a_struct
+                    );
+                }
+                Err(errors) => Err(errors),
+            },
             other => panic!("Expression {:?} is not an lvalue", other),
         }
     }
@@ -201,6 +232,10 @@ impl Evaluable for Assignment {
                     }
                     None => Err(EvaluationError::ArrayIndexOutOfBounds(array_len, index)),
                 }
+            }
+            LValue::Accessor(struct_object, field) => {
+                struct_object.borrow_mut().insert(field, rvalue);
+                Ok(None)
             }
         }
     }
@@ -354,7 +389,7 @@ impl Evaluable for Statement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::matches;
+    use std::{collections::HashMap, matches};
 
     const INFO: SourceInfo = SourceInfo {
         line: 0,
@@ -785,5 +820,72 @@ mod tests {
         };
         assert!(program.eval(&env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(1)));
+    }
+
+    #[test]
+    fn read_struct_accessor() {
+        let env = Env::empty();
+        let program = Block {
+            _info: INFO,
+            statements: vec![Statement::Return(Return {
+                _info: INFO,
+                expression: Expression::Accessor(INFO, ident("point"), "x".to_string()),
+            })],
+        };
+        env.declare(
+            "point",
+            ImmediateValue::Struct(
+                Type::Struct(
+                    "Point".to_string(),
+                    HashMap::from([("x".to_string(), Type::Integer)]),
+                ),
+                Rc::from(RefCell::new(HashMap::from([(
+                    "x".to_string(),
+                    ImmediateValue::Integer(1),
+                )]))),
+            ),
+        );
+
+        assert_eq!(program.eval(&env), Ok(Some(ImmediateValue::Integer(1))));
+    }
+
+    #[test]
+    fn assign_struct_accessor() {
+        let env = Env::empty();
+        let program = Block {
+            _info: INFO,
+            statements: vec![Statement::Assignment(Assignment {
+                _info: INFO,
+                lvalue: Expression::Accessor(INFO, ident("point"), "x".to_string()),
+                rvalue: Expression::Value(ImmediateValue::Integer(2)),
+                operator: AssignmentOperator::AddEqual,
+            })],
+        };
+        let struct_type = Type::Struct(
+            "Point".to_string(),
+            HashMap::from([("x".to_string(), Type::Integer)]),
+        );
+        env.declare(
+            "point",
+            ImmediateValue::Struct(
+                struct_type.clone(),
+                Rc::from(RefCell::new(HashMap::from([(
+                    "x".to_string(),
+                    ImmediateValue::Integer(1),
+                )]))),
+            ),
+        );
+
+        assert_eq!(program.eval(&env), Ok(None));
+        assert_eq!(
+            env.cloning_lookup("point"),
+            Some(ImmediateValue::Struct(
+                struct_type,
+                Rc::from(RefCell::new(HashMap::from([(
+                    "x".to_string(),
+                    ImmediateValue::Integer(3)
+                )])))
+            ))
+        );
     }
 }

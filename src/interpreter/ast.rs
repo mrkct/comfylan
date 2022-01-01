@@ -1,5 +1,5 @@
 use crate::interpreter::{environment::Env, typechecking::Type};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use super::evaluator::EvaluationError;
 
@@ -45,6 +45,7 @@ pub enum UnaryOperator {
 }
 
 type InternalArrayRepresentation = Rc<RefCell<Vec<ImmediateValue>>>;
+type InternalStructRepresentation = Rc<RefCell<HashMap<String, ImmediateValue>>>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ImmediateValue {
@@ -58,6 +59,7 @@ pub enum ImmediateValue {
         Type,
         fn(Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>,
     ),
+    Struct(Type, InternalStructRepresentation),
     Void,
 }
 
@@ -65,12 +67,14 @@ pub enum ImmediateValue {
 pub enum LValue {
     Identifier(String),
     IndexInArray(InternalArrayRepresentation, i64),
+    Accessor(InternalStructRepresentation, String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Value(ImmediateValue),
     Identifier(SourceInfo, String),
+    Accessor(SourceInfo, Box<Expression>, String),
     BinaryOperation(
         SourceInfo,
         Option<Type>,
@@ -205,6 +209,14 @@ impl From<Block> for Statement {
 #[derive(Debug, PartialEq, Clone)]
 pub enum TopLevelDeclaration {
     Function(SourceInfo, Type, String, Vec<String>, Block),
+    StructDeclaration(StructDeclaration),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct StructDeclaration {
+    pub _info: SourceInfo,
+    pub name: String,
+    pub fields: Vec<(String, Type)>,
 }
 
 impl ImmediateValue {
@@ -218,6 +230,7 @@ impl ImmediateValue {
             ImmediateValue::Closure(functype, _, _, _)
             | ImmediateValue::NativeFunction(functype, _) => functype.clone(),
             ImmediateValue::Void => Type::Void,
+            ImmediateValue::Struct(t, _) => t.clone(),
         }
     }
 
@@ -325,6 +338,9 @@ impl ImmediateValue {
             }
             (ImmediateValue::String(x), ImmediateValue::String(y)) => {
                 Ok(ImmediateValue::Boolean(x == y))
+            }
+            (ImmediateValue::Struct(t1, v1), ImmediateValue::Struct(t2, v2)) if t1 == t2 => {
+                Ok(ImmediateValue::Boolean(v1 == v2))
             }
             (bad_val1, bad_val2) => Err(EvaluationError::FatalError(format!(
                 "Cannot compare values of type {:?} and {:?}",
@@ -480,6 +496,13 @@ impl LValue {
                 ))),
                 BinaryOperator::Indexing,
                 Box::new(Expression::Value(ImmediateValue::Integer(*index))),
+            ),
+            LValue::Accessor(struct_repr, field) => Expression::Value(
+                struct_repr
+                    .borrow()
+                    .get(field)
+                    .expect("typechecker fail")
+                    .clone(),
             ),
         }
     }

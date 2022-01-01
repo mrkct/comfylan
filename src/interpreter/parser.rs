@@ -11,8 +11,9 @@ const TODO_INFO: SourceInfo = SourceInfo {
 };
 
 /*
-Program := (<Function>|<Type-Declaration>)*
+Program := (<Function>|<Struct-Declaration>)*
 Function := fn identifier ( <Empty>|<Arg> (,<Arg>)* ) -> <Type> <Block>
+Struct-Declaration := struct <identifier> { <identifier> : <Type> (, <identifier> : <Type>)* }
 Type := identifier | [ Type ]
 Arg := identifier : <Type>
 Block := { Statement* }
@@ -28,9 +29,11 @@ Expr := P1Expr
 P1Expr := P2Expr ( (and|or|xor|nor) P2Expr)*
 P2Expr := P3Expr ( (==|!=|<=|>=|<|>) P3Expr )*
 P3Expr := P4Expr ( (+|-) P4Expr )*
-P4Expr := <P5Expr> ( (*|/) <P5Expr> )*
-P5Expr := (-|not) <Value> | <Value>[<Expr>] | <Value>( <Expr> (, <Expr>)* )
-Value := <Constant> | '(' <Expr> ')' | identifier
+P4Expr := <P5Expr> ( (*|/|.) <P5Expr> )*
+P5Expr := (-|not) <P6Expr> | <P6Expr>
+P6Expr := <P7Expr><P6Expr'>
+P6Expr' := ( <',' separated list of <Expr>> )P6Expr' | [<Expr>]P6Expr' | '.' identifier | <Empty>
+Value := <Constant> | '(' <Expr> ')' | '[' <',' separated list of <Expr>> ']' | <Value> '.' identifier | identifier
 Constant := integer | floating_point | string | KeywordTrue | KeywordFalse
 */
 
@@ -129,12 +132,29 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_program(&mut self) -> Option<Vec<TopLevelDeclaration>> {
-        let mut collected_functions = vec![];
-        while let Some(function) = self.parse_root_function_declaration() {
-            collected_functions.push(function);
+        let parse_a_top_level_declaration = |myself: &mut Self| {
+            let parsers = &[
+                Self::parse_root_function_declaration,
+                |myself: &mut Self| {
+                    Some(TopLevelDeclaration::StructDeclaration(
+                        myself.parse_struct_declaration()?,
+                    ))
+                },
+            ];
+            for parser in parsers {
+                if let decl @ Some(_) = parser(myself) {
+                    return decl;
+                }
+            }
+            None
+        };
+
+        let mut top_level_declarations = vec![];
+        while let Some(top_level_declaration) = parse_a_top_level_declaration(self) {
+            top_level_declarations.push(top_level_declaration);
         }
 
-        Some(collected_functions)
+        Some(top_level_declarations)
     }
 
     fn parse_value(&mut self) -> Option<Box<Expression>> {
@@ -167,6 +187,10 @@ impl<'a> Parser<'a> {
                 Some(node)
             }) {
                 return Some(node);
+            }
+
+            if let result @ Some(_) = self.parse_array_initialization() {
+                return result;
             }
 
             None
@@ -219,20 +243,68 @@ impl<'a> Parser<'a> {
     );
 
     fn parse_p5expr(&mut self) -> Option<Box<Expression>> {
-        let parsing_methods = &[
-            Self::parse_unary_expression,
-            Self::parse_array_indexing,
-            Self::parse_function_call,
-            Self::parse_array_initialization,
-            Self::parse_value,
-        ];
-
-        for parser in parsing_methods {
-            if let Some(node) = parser(self) {
-                return Some(node);
-            }
+        if let result @ Some(_) = self.parse_unary_expression() {
+            result
+        } else {
+            self.parse_p6expr()
         }
-        None
+    }
+
+    fn parse_p6expr(&mut self) -> Option<Box<Expression>> {
+        fn parse_p6expr_sub(myself: &mut Parser, prev_expr: Box<Expression>) -> Box<Expression> {
+            // Function call
+            if let Some(args) = rewinding_if_none!(myself, {
+                try_consume!(myself.tokens, TokenKind::OpenRoundBracket)?;
+                let args = myself.parse_token_separated_list_of(TokenKind::Comma, |myself| {
+                    myself.parse_expr().map(|x| *x)
+                })?;
+                try_consume!(myself.tokens, TokenKind::CloseRoundBracket)?;
+                Some(args)
+            }) {
+                return parse_p6expr_sub(
+                    myself,
+                    Box::new(Expression::FunctionCall(TODO_INFO, None, prev_expr, args)),
+                );
+            }
+
+            // Array indexing
+            if let Some(index) = rewinding_if_none!(myself, {
+                try_consume!(myself.tokens, TokenKind::OpenSquareBracket)?;
+                let index = myself.parse_expr()?;
+                try_consume!(myself.tokens, TokenKind::CloseSquareBracket)?;
+                Some(index)
+            }) {
+                return parse_p6expr_sub(
+                    myself,
+                    Box::new(Expression::BinaryOperation(
+                        TODO_INFO,
+                        None,
+                        prev_expr,
+                        BinaryOperator::Indexing,
+                        index,
+                    )),
+                );
+            }
+
+            // Struct accessor
+            if let Some(field) = rewinding_if_none!(myself, {
+                try_consume!(myself.tokens, TokenKind::Period)?;
+                let (_, field) = myself.try_consume_identifier()?;
+                Some(field)
+            }) {
+                return parse_p6expr_sub(
+                    myself,
+                    Box::new(Expression::Accessor(TODO_INFO, prev_expr, field)),
+                );
+            }
+
+            prev_expr
+        }
+
+        rewinding_if_none!(self, {
+            let first_expr = self.parse_value()?;
+            Some(parse_p6expr_sub(self, first_expr))
+        })
     }
 
     fn parse_unary_expression(&mut self) -> Option<Box<Expression>> {
@@ -248,36 +320,6 @@ impl<'a> Parser<'a> {
                     _ => unreachable!(),
                 },
                 value,
-            )))
-        })
-    }
-
-    fn parse_array_indexing(&mut self) -> Option<Box<Expression>> {
-        rewinding_if_none!(self, {
-            let indexable = self.parse_value()?;
-            try_consume!(self.tokens, TokenKind::OpenSquareBracket)?;
-            let index = self.parse_expr()?;
-            try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
-            Some(Box::new(Expression::BinaryOperation(
-                TODO_INFO,
-                None,
-                indexable,
-                BinaryOperator::Indexing,
-                index,
-            )))
-        })
-    }
-
-    fn parse_function_call(&mut self) -> Option<Box<Expression>> {
-        rewinding_if_none!(self, {
-            let function = self.parse_value()?;
-            try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
-            let arguments = self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
-                myself.parse_expr().map(|x| *x)
-            })?;
-            try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
-            Some(Box::new(Expression::FunctionCall(
-                TODO_INFO, None, function, arguments,
             )))
         })
     }
@@ -526,6 +568,42 @@ impl<'a> Parser<'a> {
                     .collect(),
                 function_code,
             ))
+        })
+    }
+
+    fn try_consume_identifier(&mut self) -> Option<(&Token, String)> {
+        if let Some(
+            token
+            @
+            Token {
+                kind: TokenKind::Identifier(name),
+                ..
+            },
+        ) = try_consume!(self.tokens, TokenKind::Identifier(_))
+        {
+            return Some((token, name.to_string()));
+        }
+        None
+    }
+
+    fn parse_struct_declaration(&mut self) -> Option<StructDeclaration> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordStruct)?;
+            let (_name_token, name) = self.try_consume_identifier()?;
+            try_consume!(self.tokens, TokenKind::OpenCurlyBracket)?;
+            let fields = self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
+                let (_name_token, field_name) = myself.try_consume_identifier()?;
+                try_consume!(myself.tokens, TokenKind::Colon)?;
+                let field_type = myself.parse_type()?;
+                Some((field_name, *field_type))
+            })?;
+            try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
+
+            Some(StructDeclaration {
+                _info: TODO_INFO,
+                name,
+                fields,
+            })
         })
     }
 
@@ -1384,6 +1462,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_struct_declaration() {
+        let tokens = [
+            tok(TokenKind::KeywordStruct),
+            tok(TokenKind::Identifier("Point")),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("int")),
+            tok(TokenKind::Comma),
+            tok(TokenKind::Identifier("y")),
+            tok(TokenKind::Colon),
+            tok(TokenKind::Identifier("float")),
+            tok(TokenKind::CloseCurlyBracket),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_struct_declaration(),
+            Some(StructDeclaration {
+                _info: I,
+                name: "Point".to_string(),
+                fields: vec![
+                    ("x".to_string(), Type::Integer),
+                    ("y".to_string(), Type::FloatingPoint)
+                ]
+            })
+        );
+    }
+
+    #[test]
     fn function_call_minus_1() {
         let tokens = vec![
             tok(TokenKind::Identifier("len")),
@@ -1430,5 +1538,78 @@ mod tests {
                 ))
             )))
         )
+    }
+
+    #[test]
+    fn parse_function_call_from_indexing() {
+        let tokens = vec![
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::OpenSquareBracket),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::CloseSquareBracket),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::CloseRoundBracket),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(Box::new(Expression::FunctionCall(
+                I,
+                None,
+                binop(ident("x"), BinaryOperator::Indexing, intval(1)),
+                vec![]
+            )))
+        );
+    }
+
+    #[test]
+    fn parse_struct_accessor_operator() {
+        let tokens = vec![
+            tok(TokenKind::Identifier("player")),
+            tok(TokenKind::Period),
+            tok(TokenKind::Identifier("get_position")),
+            tok(TokenKind::OpenRoundBracket),
+            tok(TokenKind::CloseRoundBracket),
+            tok(TokenKind::Period),
+            tok(TokenKind::Identifier("x")),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(Box::new(Expression::Accessor(
+                I,
+                Box::new(Expression::FunctionCall(
+                    I,
+                    None,
+                    Box::new(Expression::Accessor(
+                        I,
+                        ident("player"),
+                        "get_position".to_string()
+                    )),
+                    vec![]
+                )),
+                "x".to_string()
+            )))
+        );
+    }
+
+    #[test]
+    fn chained_accessors() {
+        let tokens = vec![
+            tok(TokenKind::Identifier("a")),
+            tok(TokenKind::Period),
+            tok(TokenKind::Identifier("b")),
+            tok(TokenKind::Period),
+            tok(TokenKind::Identifier("c")),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(Box::new(Expression::Accessor(
+                I,
+                Box::new(Expression::Accessor(I, ident("a"), "b".to_string())),
+                "c".to_string()
+            )))
+        );
     }
 }

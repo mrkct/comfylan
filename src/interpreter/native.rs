@@ -56,6 +56,14 @@ fn print_immediate_value(v: &ImmediateValue) {
         ImmediateValue::Closure(ftype, _, _, _) => print!("[@Closure {:?}]", ftype),
         ImmediateValue::NativeFunction(ftype, _) => print!("[@NativeFunction {:?}]", ftype),
         ImmediateValue::Void => print!("[Void]"),
+        ImmediateValue::Struct(_, fields) => {
+            print!("{{");
+            fields.borrow().iter().for_each(|(key, val)| {
+                print!("{}=", key);
+                print_immediate_value(val);
+            });
+            print!("}}");
+        }
     }
 }
 

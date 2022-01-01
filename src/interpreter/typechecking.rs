@@ -1,5 +1,5 @@
 use crate::interpreter::{ast::*, environment::*};
-use std::{borrow::BorrowMut, rc::Rc};
+use std::{borrow::BorrowMut, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type {
@@ -11,6 +11,7 @@ pub enum Type {
     Array(Box<Type>),
     Closure(Vec<Type>, Box<Type>),
     UserDefined(String),
+    Struct(String, HashMap<String, Type>),
     Any,
 }
 
@@ -18,6 +19,13 @@ impl Type {
     pub fn is_subtype_of(&self, other: &Type) -> bool {
         // TODO: Actually implement this
         self == other || other == &Type::Any
+    }
+}
+
+impl From<StructDeclaration> for Type {
+    fn from(struct_declaration: StructDeclaration) -> Self {
+        let StructDeclaration { name, fields, .. } = struct_declaration;
+        Type::Struct(name, HashMap::from_iter(fields))
     }
 }
 
@@ -93,6 +101,8 @@ pub enum TypeError {
     WrongArgumentNumberToFunctionCall(usize, usize),
     CannotFindCommonType(Vec<Type>),
     MismatchedReturnType(Type, Type),
+    NoSuchFieldInStruct(Type, String),
+    CannotAccessFieldInNonStructType(Type, String),
 }
 
 fn find_closest_common_parent_type(types: &[Type]) -> Option<Type> {
@@ -234,6 +244,25 @@ fn eval_type_of_expression(
                     not_a_closure_type,
                 )]),
                 error => error,
+            }
+        }
+        Expression::Accessor(_, struct_expr, field_name) => {
+            match eval_type_of_expression(env, &struct_expr) {
+                Ok(Type::Struct(struct_name, fields)) => {
+                    if let Some(field_type) = fields.get(field_name) {
+                        Ok(field_type.clone())
+                    } else {
+                        Err(vec![TypeError::NoSuchFieldInStruct(
+                            Type::Struct(struct_name, fields),
+                            field_name.clone(),
+                        )])
+                    }
+                }
+                Ok(not_a_struct) => Err(vec![TypeError::CannotAccessFieldInNonStructType(
+                    not_a_struct,
+                    field_name.clone(),
+                )]),
+                errors => errors,
             }
         }
     }
@@ -554,7 +583,8 @@ fn typecheck_top_level_declaration(
                 _ => unreachable!(),
             }
         }
-        _ => unreachable!(),
+        TopLevelDeclaration::Function(_, _, _, _, _) => unreachable!(),
+        TopLevelDeclaration::StructDeclaration(_) => Ok(()),
     }
 }
 
@@ -566,6 +596,9 @@ pub fn typecheck_program(
         match decl {
             TopLevelDeclaration::Function(_, ftype, name, _, _) => {
                 global_env.declare(name, ftype.clone());
+            }
+            TopLevelDeclaration::StructDeclaration(s @ StructDeclaration { ref name, .. }) => {
+                global_env.declare(name, s.clone().into());
             }
         }
     }
