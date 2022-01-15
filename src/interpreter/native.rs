@@ -1,37 +1,61 @@
+use lazy_static::lazy_static;
+
 use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
 use std::{cell::RefCell, rc::Rc};
 
 use super::evaluator::EvaluationError;
 
-pub fn fill_env_with_native_functions(env: &Rc<Env<ImmediateValue>>, type_env: &Rc<Env<Type>>) {
-    let declare = |f, name, args: Vec<Type>, return_type| {
-        let signature = Type::Closure(args, Box::new(return_type));
-        env.declare(name, ImmediateValue::NativeFunction(signature.clone(), f));
-        type_env.declare(name, signature);
-    };
+lazy_static! {
+    static ref NATIVE_FUNCTIONS: [(
+        &'static str,
+        Type,
+        fn(Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>
+    ); 4] = [
+        (
+            "print",
+            Type::Closure(vec![], Box::new(Type::Void)),
+            native_print
+        ),
+        (
+            "len",
+            Type::Closure(
+                vec![Type::Array(Box::new(Type::Any))],
+                Box::new(Type::Integer)
+            ),
+            native_array_len
+        ),
+        (
+            "insert",
+            Type::Closure(
+                vec![Type::Array(Box::new(Type::Any)), Type::Integer, Type::Any],
+                Box::new(Type::Any)
+            ),
+            native_array_insert
+        ),
+        (
+            "remove",
+            Type::Closure(
+                vec![Type::Array(Box::new(Type::Any)), Type::Integer],
+                Box::new(Type::Void)
+            ),
+            native_array_remove
+        )
+    ];
+}
 
-    // I/O
-    declare(native_print, "print", vec![], Type::Void);
+pub fn fill_values_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
+    for (name, signature, native_func) in NATIVE_FUNCTIONS.iter() {
+        env.declare(
+            name,
+            ImmediateValue::NativeFunction(signature.clone(), *native_func),
+        );
+    }
+}
 
-    // Array operations
-    declare(
-        native_array_len,
-        "len",
-        vec![Type::Array(Box::new(Type::Any))],
-        Type::Integer,
-    );
-    declare(
-        native_array_insert,
-        "insert",
-        vec![Type::Array(Box::new(Type::Any)), Type::Integer, Type::Any],
-        Type::Void,
-    );
-    declare(
-        native_array_remove,
-        "remove",
-        vec![Type::Array(Box::new(Type::Any)), Type::Integer],
-        Type::Void,
-    );
+pub fn fill_type_env_with_native_functions(env: &Rc<Env<Type>>) {
+    for (name, signature, _) in NATIVE_FUNCTIONS.iter() {
+        env.declare(name, signature.clone());
+    }
 }
 
 fn print_immediate_value(v: &ImmediateValue) {

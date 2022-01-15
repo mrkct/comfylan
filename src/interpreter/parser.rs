@@ -3,6 +3,7 @@ use crate::interpreter::{
     lexer::{Token, TokenKind},
     typechecking::Type,
 };
+use std::collections::HashMap;
 
 const TODO_INFO: SourceInfo = SourceInfo {
     line: 0,
@@ -131,30 +132,25 @@ impl<'a> Parser<'a> {
         Some(collected_parameters)
     }
 
-    pub fn parse_program(&mut self) -> Option<Vec<TopLevelDeclaration>> {
-        let parse_a_top_level_declaration = |myself: &mut Self| {
-            let parsers = &[
-                Self::parse_root_function_declaration,
-                |myself: &mut Self| {
-                    Some(TopLevelDeclaration::StructDeclaration(
-                        myself.parse_struct_declaration()?,
-                    ))
-                },
-            ];
-            for parser in parsers {
-                if let decl @ Some(_) = parser(myself) {
-                    return decl;
-                }
-            }
-            None
-        };
+    pub fn parse_program(&mut self) -> Option<Program> {
+        let mut type_declarations = HashMap::new();
+        let mut function_declarations = HashMap::new();
 
-        let mut top_level_declarations = vec![];
-        while let Some(top_level_declaration) = parse_a_top_level_declaration(self) {
-            top_level_declarations.push(top_level_declaration);
+        loop {
+            if let Some(type_declaration) = self.parse_struct_declaration() {
+                type_declarations.insert(type_declaration.name.to_string(), type_declaration);
+            } else if let Some(function_declaration) = self.parse_function_declaration() {
+                function_declarations
+                    .insert(function_declaration.name.to_string(), function_declaration);
+            } else {
+                break;
+            }
         }
 
-        Some(top_level_declarations)
+        Some(Program {
+            type_declarations,
+            function_declarations,
+        })
     }
 
     fn parse_value(&mut self) -> Option<Box<Expression>> {
@@ -327,13 +323,7 @@ impl<'a> Parser<'a> {
     fn parse_let_declaration(&mut self) -> Option<Declaration> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordLet)?;
-            let name = match try_consume!(self.tokens, TokenKind::Identifier(_))? {
-                Token {
-                    kind: TokenKind::Identifier(name),
-                    ..
-                } => name,
-                _ => return None,
-            };
+            let (_, name) = self.try_consume_identifier()?;
             let declared_type = rewinding_if_none!(self, {
                 try_consume!(self.tokens, TokenKind::Colon)?;
                 self.parse_type()
@@ -342,7 +332,7 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expr()?;
             Some(Declaration {
                 _info: TODO_INFO,
-                name: name.to_string(),
+                name: name,
                 expected_type: declared_type.map(|t| *t),
                 immutable: true,
                 rvalue: *expr,
@@ -353,14 +343,7 @@ impl<'a> Parser<'a> {
     fn parse_var_declaration(&mut self) -> Option<Declaration> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordVar)?;
-            let name = match try_consume!(self.tokens, TokenKind::Identifier(_))? {
-                Token {
-                    kind: TokenKind::Identifier(name),
-                    ..
-                } => name,
-                _ => return None,
-            };
-
+            let (_, name) = self.try_consume_identifier()?;
             let declared_type = rewinding_if_none!(self, {
                 try_consume!(self.tokens, TokenKind::Colon)?;
                 self.parse_type()
@@ -369,7 +352,7 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expr()?;
             Some(Declaration {
                 _info: TODO_INFO,
-                name: name.to_string(),
+                name: name,
                 expected_type: declared_type.map(|t| *t),
                 immutable: false,
                 rvalue: *expr,
@@ -398,7 +381,7 @@ impl<'a> Parser<'a> {
             Some(Assignment {
                 _info: TODO_INFO,
                 lvalue: *lvalue,
-                operator: operator,
+                operator,
                 rvalue: *rvalue,
             })
         })
@@ -415,7 +398,7 @@ impl<'a> Parser<'a> {
                 None => Some(If {
                     _info: TODO_INFO,
                     condition: *condition,
-                    branch_true: branch_true,
+                    branch_true,
                     branch_false: None,
                 }),
                 _ => {
@@ -423,7 +406,7 @@ impl<'a> Parser<'a> {
                     Some(If {
                         _info: TODO_INFO,
                         condition: *condition,
-                        branch_true: branch_true,
+                        branch_true,
                         branch_false: Some(false_branch),
                     })
                 }
@@ -529,45 +512,37 @@ impl<'a> Parser<'a> {
                 "bool" => Box::new(Type::Boolean),
                 "string" => Box::new(Type::String),
                 "void" => Box::new(Type::Void),
-                _ => Box::new(Type::UserDefined(type_name)),
+                _ => Box::new(Type::TypeReference(type_name)),
             })
         }
     }
 
-    fn parse_root_function_declaration(&mut self) -> Option<TopLevelDeclaration> {
+    fn parse_function_declaration(&mut self) -> Option<FunctionDeclaration> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordFn)?;
-            let function_name = try_consume!(self.tokens, TokenKind::Identifier(_))?;
+            let (_, function_name) = self.try_consume_identifier()?;
             try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
 
             let collected_parameters =
                 self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
-                    let arg_name = try_consume!(myself.tokens, TokenKind::Identifier(_))?;
+                    let (_, arg_name) = myself.try_consume_identifier()?;
                     try_consume!(myself.tokens, TokenKind::Colon)?;
                     let arg_type = myself.parse_type()?;
-                    Some((arg_name.clone_identifiers_string(), *arg_type))
+                    Some((arg_name, *arg_type))
                 })?;
 
             try_consume!(self.tokens, TokenKind::CloseRoundBracket)?;
             try_consume!(self.tokens, TokenKind::MinusGreaterThan)?;
             let return_type = self.parse_type()?;
             let function_code = self.parse_block()?;
-            Some(TopLevelDeclaration::Function(
-                TODO_INFO,
-                Type::Closure(
-                    collected_parameters
-                        .iter()
-                        .map(|(_, t)| t.clone())
-                        .collect(),
-                    return_type,
-                ),
-                function_name.clone_identifiers_string(),
-                collected_parameters
-                    .iter()
-                    .map(|(n, _)| n.clone())
-                    .collect(),
-                function_code,
-            ))
+
+            Some(FunctionDeclaration {
+                info: TODO_INFO,
+                name: function_name,
+                block: function_code,
+                return_type: *return_type,
+                args: collected_parameters,
+            })
         })
     }
 
@@ -586,7 +561,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_struct_declaration(&mut self) -> Option<StructDeclaration> {
+    fn parse_struct_declaration(&mut self) -> Option<TypeDeclaration> {
         rewinding_if_none!(self, {
             try_consume!(self.tokens, TokenKind::KeywordStruct)?;
             let (_name_token, name) = self.try_consume_identifier()?;
@@ -599,10 +574,10 @@ impl<'a> Parser<'a> {
             })?;
             try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
 
-            Some(StructDeclaration {
-                _info: TODO_INFO,
+            Some(TypeDeclaration {
+                info: TODO_INFO,
                 name,
-                fields,
+                fields: HashMap::from_iter(fields),
             })
         })
     }
@@ -662,7 +637,7 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
             Some(Block {
                 _info: TODO_INFO,
-                statements: statements,
+                statements,
             })
         })
     }
@@ -1437,27 +1412,28 @@ mod tests {
             tok(TokenKind::Identifier("string")),
             tok(TokenKind::CloseRoundBracket),
             tok(TokenKind::MinusGreaterThan),
-            tok(TokenKind::Identifier("CustomType")),
+            tok(TokenKind::Identifier("int")),
             tok(TokenKind::OpenCurlyBracket),
             tok(TokenKind::CloseCurlyBracket),
         ];
 
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            parser.parse_root_function_declaration(),
-            Some(TopLevelDeclaration::Function(
-                I,
-                Type::Closure(
-                    vec![Type::Integer, Type::Boolean, Type::String],
-                    Box::new(Type::UserDefined("CustomType".to_string()))
-                ),
-                "myfunc".to_string(),
-                vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()],
-                Block {
+            parser.parse_function_declaration(),
+            Some(FunctionDeclaration {
+                info: I,
+                name: "myfunc".into(),
+                args: vec![
+                    ("arg1".into(), Type::Integer),
+                    ("arg2".into(), Type::Boolean),
+                    ("arg3".into(), Type::String)
+                ],
+                return_type: Type::Integer,
+                block: Block {
                     _info: I,
                     statements: vec![]
                 }
-            ))
+            })
         );
     }
 
@@ -1480,13 +1456,13 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             parser.parse_struct_declaration(),
-            Some(StructDeclaration {
-                _info: I,
+            Some(TypeDeclaration {
+                info: I,
                 name: "Point".to_string(),
-                fields: vec![
+                fields: HashMap::from([
                     ("x".to_string(), Type::Integer),
                     ("y".to_string(), Type::FloatingPoint)
-                ]
+                ])
             })
         );
     }

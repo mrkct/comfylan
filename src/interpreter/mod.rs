@@ -27,69 +27,27 @@ pub fn tokenize(source: &str) -> Result<Vec<lexer::Token>, Vec<lexer::LexerError
     }
 }
 
-pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Vec<TopLevelDeclaration>, &'static str> {
+pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Program, &'static str> {
     parser::Parser::new(tokens)
         .parse_program()
         .ok_or("Parse Error")
 }
 
-fn fill_env_with_top_level_declarations(
-    env: &Rc<Env<ImmediateValue>>,
-    top_level_declarations: &[TopLevelDeclaration],
-) {
-    for decl in top_level_declarations {
-        match decl {
-            TopLevelDeclaration::Function(_, _, name, argnames, code) => {
-                env.declare(
-                    name,
-                    ImmediateValue::Closure(
-                        Type::Integer,
-                        Rc::clone(env),
-                        argnames.to_vec(),
-                        code.clone(),
-                    ),
-                );
-            }
-            TopLevelDeclaration::StructDeclaration(
-                decl
-                @ StructDeclaration {
-                    ref name, fields, ..
-                },
-            ) => {
-                env.declare(
-                    name,
-                    ImmediateValue::NativeFunction(decl.clone().into(), |args| {
-                        // TODO: Actually implement this, right now it's hard
-                        Ok(ImmediateValue::Boolean(false))
-                    }),
-                );
-            }
-        }
+pub fn run(program: Program, args: &[&str]) -> Result<ImmediateValue, EvaluationError> {
+    let env = Env::empty();
+    native::fill_values_env_with_native_functions(&env);
+    for (function_name, function_decl) in program.function_declarations {
+        env.declare(
+            &function_name,
+            FunctionDeclaration::make_closure_immediate_value(function_decl, &env),
+        );
     }
-}
 
-pub fn eval(
-    argv: &[&str],
-    top_level_declarations: Vec<TopLevelDeclaration>,
-) -> Result<ImmediateValue, EvaluationError> {
     const FAKE_SOURCE_INFO: SourceInfo = SourceInfo {
         line: 0,
         column: 0,
         offset_in_source: 0,
     };
-    let root_env = Env::empty();
-    let mut type_env = Env::empty();
-
-    native::fill_env_with_native_functions(&root_env, &type_env);
-    fill_env_with_top_level_declarations(&root_env, &top_level_declarations);
-
-    if let Err(type_errors) = typecheck_program(&mut type_env, &top_level_declarations) {
-        for error in type_errors {
-            println!("TypeError: {:?}", error);
-        }
-        return Ok(ImmediateValue::Void);
-    }
-
     Expression::FunctionCall(
         FAKE_SOURCE_INFO,
         None,
@@ -97,11 +55,11 @@ pub fn eval(
         vec![Expression::Value(ImmediateValue::Array(
             Type::String,
             Rc::new(RefCell::new(
-                argv.iter()
+                args.iter()
                     .map(|v| ImmediateValue::String(v.to_string()))
                     .collect::<Vec<_>>(),
             )),
         ))],
     )
-    .eval(&root_env)
+    .eval(&env)
 }

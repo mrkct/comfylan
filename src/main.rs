@@ -1,5 +1,4 @@
-use crate::interpreter::eval;
-use interpreter::lexer::LexerError;
+use interpreter::{lexer::LexerError, typechecking::TypeError};
 use std::env;
 
 mod interpreter;
@@ -21,6 +20,12 @@ fn print_parsing_errors(errors: &str) {
     eprintln!("Parse Error: {}", errors);
 }
 
+fn print_type_errors(errors: &[TypeError]) {
+    for err in errors {
+        eprintln!("Type Error: {:#?}", err);
+    }
+}
+
 fn main() {
     let args = env::args().collect::<Vec<String>>();
     let source = {
@@ -37,21 +42,28 @@ fn main() {
         }
     };
 
-    let tokens = interpreter::tokenize(&source);
-    if let Err(errors) = tokens {
-        print_lexer_errors(&errors);
-        return;
-    }
-    let tokens = tokens.unwrap();
+    let tokens = match interpreter::tokenize(&source) {
+        Err(errors) => {
+            print_lexer_errors(&errors);
+            return;
+        }
+        Ok(tokens) => tokens,
+    };
     println!("{:#?}", tokens);
 
-    let parse_tree = interpreter::parse(&tokens);
-    if let Err(errors) = parse_tree {
-        print_parsing_errors(errors);
+    let program = match interpreter::parse(&tokens) {
+        Err(errors) => {
+            print_parsing_errors(errors);
+            return;
+        }
+        Ok(program) => program,
+    };
+    println!("{:#?}", program);
+
+    if let Err(type_errors) = interpreter::typechecking::typecheck_program(&program) {
+        print_type_errors(&type_errors);
         return;
     }
-    let top_level_declarations = parse_tree.unwrap();
-    println!("{:#?}", top_level_declarations);
 
-    println!("\n{:?}", eval(&["test-program"], top_level_declarations));
+    println!("\n{:?}", interpreter::run(program, &["test-program"]));
 }

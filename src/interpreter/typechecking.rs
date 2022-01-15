@@ -10,22 +10,36 @@ pub enum Type {
     Boolean,
     Array(Box<Type>),
     Closure(Vec<Type>, Box<Type>),
-    UserDefined(String),
+    TypeReference(String),
     Struct(String, HashMap<String, Type>),
     Any,
 }
 
 impl Type {
-    pub fn is_subtype_of(&self, other: &Type) -> bool {
+    pub fn is_subtype_of(&self, env: &Env<Type>, other: &Type) -> bool {
         // TODO: Actually implement this
         self == other || other == &Type::Any
     }
 }
 
-impl From<StructDeclaration> for Type {
-    fn from(struct_declaration: StructDeclaration) -> Self {
-        let StructDeclaration { name, fields, .. } = struct_declaration;
-        Type::Struct(name, HashMap::from_iter(fields))
+impl From<&TypeDeclaration> for Type {
+    fn from(struct_declaration: &TypeDeclaration) -> Self {
+        let TypeDeclaration { name, fields, .. } = struct_declaration;
+        Type::Struct(name.to_string(), fields.clone())
+    }
+}
+
+impl From<&FunctionDeclaration> for Type {
+    fn from(function_declaration: &FunctionDeclaration) -> Self {
+        Type::Closure(
+            function_declaration
+                .args
+                .clone()
+                .into_iter()
+                .map(|(_, t)| t)
+                .collect(),
+            Box::new(function_declaration.return_type.clone()),
+        )
     }
 }
 
@@ -105,7 +119,7 @@ pub enum TypeError {
     CannotAccessFieldInNonStructType(Type, String),
 }
 
-fn find_closest_common_parent_type(types: &[Type]) -> Option<Type> {
+fn find_closest_common_parent_type(env: &Env<Type>, types: &[Type]) -> Option<Type> {
     // TODO: This is a super stupid and bad implementation
     if types.is_empty() {
         return None;
@@ -113,13 +127,13 @@ fn find_closest_common_parent_type(types: &[Type]) -> Option<Type> {
 
     let mut highest_type = types.first().unwrap();
     for t in types {
-        if highest_type.is_subtype_of(t) {
+        if highest_type.is_subtype_of(env, t) {
             highest_type = t;
         }
     }
 
     for t in types {
-        if !t.is_subtype_of(highest_type) {
+        if !t.is_subtype_of(env, highest_type) {
             return None;
         }
     }
@@ -146,7 +160,7 @@ fn eval_type_of_expression(
                     let type_errors = types
                         .iter()
                         .filter_map(|t| {
-                            if t.is_subtype_of(expected_type) {
+                            if t.is_subtype_of(env, expected_type) {
                                 None
                             } else {
                                 Some(TypeError::MismatchedTypes(expected_type.clone(), t.clone()))
@@ -247,7 +261,7 @@ fn eval_type_of_expression(
             }
         }
         Expression::Accessor(_, struct_expr, field_name) => {
-            match eval_type_of_expression(env, &struct_expr) {
+            match eval_type_of_expression(env, struct_expr) {
                 Ok(Type::Struct(struct_name, fields)) => {
                     if let Some(field_type) = fields.get(field_name) {
                         Ok(field_type.clone())
@@ -298,7 +312,7 @@ fn verify_type_or_collect_errors(
     errors: &mut Vec<TypeError>,
 ) {
     match eval_type_of_expression(env, expr) {
-        Ok(t) if t.is_subtype_of(&expected_type) => {}
+        Ok(t) if t.is_subtype_of(env, &expected_type) => {}
         Ok(t) => {
             errors.push(TypeError::MismatchedTypes(expected_type, t));
         }
@@ -313,7 +327,7 @@ impl Typecheckable for Declaration {
         let actual_type = eval_type_of_expression(env, &self.rvalue);
         match (&self.expected_type, actual_type) {
             (_, Err(errors)) => (Some(Type::Void), Some(errors)),
-            (Some(expected), Ok(actual)) if actual.is_subtype_of(&expected) => {
+            (Some(expected), Ok(actual)) if actual.is_subtype_of(env, expected) => {
                 env.borrow_mut().declare(&self.name, expected.clone());
                 (Some(Type::Void), None)
             }
@@ -338,7 +352,7 @@ impl Typecheckable for Assignment {
             (Ok(left), Ok(right)) => {
                 let errors = match self.operator {
                     AssignmentOperator::Equal => {
-                        if right.is_subtype_of(&left) {
+                        if right.is_subtype_of(env, &left) {
                             None
                         } else {
                             Some(vec![TypeError::MismatchedTypes(left, right)])
@@ -498,7 +512,7 @@ impl Typecheckable for Block {
             if collected_return_types.is_empty() {
                 Some(Type::Void)
             } else if let Some(common_type) =
-                find_closest_common_parent_type(&collected_return_types)
+                find_closest_common_parent_type(env, &collected_return_types)
             {
                 Some(common_type)
             } else {
@@ -552,68 +566,49 @@ impl Typecheckable for Statement {
     }
 }
 
-fn typecheck_top_level_declaration(
-    env: &Rc<Env<Type>>,
-    def: &TopLevelDeclaration,
-) -> Result<(), Vec<TypeError>> {
-    match def {
-        TopLevelDeclaration::Function(
-            _,
-            Type::Closure(arg_types, return_type),
-            _,
-            arg_names,
-            statement,
-        ) => {
-            let mut child = Env::create_child(env);
-            for (argname, argtype) in arg_names.iter().zip(arg_types.iter()) {
-                child.declare(argname, argtype.clone());
-            }
-            match statement.typecheck(&mut child) {
-                (Some(t), None) if t.is_subtype_of(return_type) => Ok(()),
-                (Some(t), maybe_errors) => {
-                    let mismatched_return_type =
-                        TypeError::MismatchedReturnType(*return_type.clone(), t);
-                    if let Some(mut errors) = maybe_errors {
-                        errors.push(mismatched_return_type);
-                        Err(errors)
-                    } else {
-                        Err(vec![mismatched_return_type])
-                    }
-                }
-                _ => unreachable!(),
-            }
+impl Typecheckable for FunctionDeclaration {
+    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+        let mut child = Env::create_child(env);
+        for (argname, argtype) in &self.args {
+            child.declare(argname, argtype.clone());
         }
-        TopLevelDeclaration::Function(_, _, _, _, _) => unreachable!(),
-        TopLevelDeclaration::StructDeclaration(_) => Ok(()),
+        match self.block.typecheck(&mut child) {
+            (Some(t), None) if t.is_subtype_of(env, &self.return_type) => (None, None),
+            (Some(t), maybe_errors) => {
+                let mismatched_return_type =
+                    TypeError::MismatchedReturnType(self.return_type.clone(), t);
+                if let Some(mut errors) = maybe_errors {
+                    errors.push(mismatched_return_type);
+                    (None, Some(errors))
+                } else {
+                    (None, Some(vec![mismatched_return_type]))
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
-pub fn typecheck_program(
-    global_env: &mut Rc<Env<Type>>,
-    top_level_declarations: &[TopLevelDeclaration],
-) -> Result<(), Vec<TypeError>> {
-    for decl in top_level_declarations {
-        match decl {
-            TopLevelDeclaration::Function(_, ftype, name, _, _) => {
-                global_env.declare(name, ftype.clone());
-            }
-            TopLevelDeclaration::StructDeclaration(s @ StructDeclaration { ref name, .. }) => {
-                global_env.declare(name, s.clone().into());
-            }
+pub fn typecheck_program(program: &Program) -> Result<(), Vec<TypeError>> {
+    let mut type_env = Env::empty();
+    for (name, type_decl) in &program.type_declarations {
+        type_env.declare(name, type_decl.into());
+    }
+    for (name, func_decl) in &program.function_declarations {
+        type_env.declare(name, func_decl.into());
+    }
+
+    let mut collected_errors = vec![];
+    for func_decl in program.function_declarations.values() {
+        if let (_, Some(mut errors)) = func_decl.typecheck(&mut type_env) {
+            collected_errors.append(&mut errors);
         }
     }
 
-    let mut errors = vec![];
-    for decl in top_level_declarations {
-        if let Err(mut e) = typecheck_top_level_declaration(global_env, decl) {
-            errors.append(&mut e);
-        }
-    }
-
-    if errors.is_empty() {
+    if collected_errors.is_empty() {
         Ok(())
     } else {
-        Err(errors)
+        Err(collected_errors)
     }
 }
 

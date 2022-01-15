@@ -206,17 +206,38 @@ impl From<Block> for Statement {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum TopLevelDeclaration {
-    Function(SourceInfo, Type, String, Vec<String>, Block),
-    StructDeclaration(StructDeclaration),
+#[derive(Debug, PartialEq)]
+pub struct Program {
+    pub type_declarations: HashMap<String, TypeDeclaration>,
+    pub function_declarations: HashMap<String, FunctionDeclaration>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct StructDeclaration {
-    pub _info: SourceInfo,
+#[derive(Debug, PartialEq)]
+pub struct TypeDeclaration {
+    pub info: SourceInfo,
     pub name: String,
-    pub fields: Vec<(String, Type)>,
+    pub fields: HashMap<String, Type>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FunctionDeclaration {
+    pub info: SourceInfo,
+    pub name: String,
+    pub block: Block,
+    pub return_type: Type,
+    pub args: Vec<(String, Type)>,
+}
+
+impl FunctionDeclaration {
+    pub fn make_closure_immediate_value(f: Self, env: &Rc<Env<ImmediateValue>>) -> ImmediateValue {
+        let (arg_names, arg_types): (Vec<_>, Vec<_>) = f.args.into_iter().unzip();
+        ImmediateValue::Closure(
+            Type::Closure(arg_types, Box::new(f.return_type)),
+            Rc::clone(env),
+            arg_names,
+            f.block,
+        )
+    }
 }
 
 impl ImmediateValue {
