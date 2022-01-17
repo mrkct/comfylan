@@ -118,6 +118,8 @@ pub enum TypeError {
     NoSuchFieldInStruct(Type, String),
     CannotAccessFieldInNonStructType(Type, String),
     UndeclaredType(String),
+    MissingFieldInStructDeclaration(String, String),
+    TooManyFieldsInStructDeclaration(String),
 }
 
 fn find_closest_common_parent_type(
@@ -294,6 +296,48 @@ fn eval_type_of_expression(
                     field_name.to_string(),
                 )]),
                 Err(errors) => Err(errors),
+            }
+        }
+        Expression::StructInitializer(_, struct_type_name, expected_fields) => {
+            match user_types.get(struct_type_name) {
+                Some(Type::Struct(_, actual_fields)) => {
+                    let mut collected_errors = vec![];
+                    for (key, expected_type) in actual_fields {
+                        if let Some(expr) = expected_fields.get(key) {
+                            match (
+                                eval_type_of_expression(user_types, env, expr),
+                                expected_type,
+                            ) {
+                                (Ok(t1), t2) if t1.is_subtype_of(user_types, t2) => {}
+                                (Ok(t1), t2) => {
+                                    collected_errors
+                                        .push(TypeError::MismatchedTypes(t2.clone(), t1));
+                                }
+                                (Err(mut errors), _) => {
+                                    collected_errors.append(&mut errors);
+                                }
+                            }
+                        } else {
+                            collected_errors.push(TypeError::MissingFieldInStructDeclaration(
+                                struct_type_name.to_string(),
+                                key.to_string(),
+                            ));
+                        }
+                    }
+                    if actual_fields.keys().count() > expected_fields.keys().count() {
+                        collected_errors.push(TypeError::TooManyFieldsInStructDeclaration(
+                            struct_type_name.to_string(),
+                        ));
+                    }
+
+                    if collected_errors.is_empty() {
+                        Ok(Type::TypeReference(struct_type_name.clone()))
+                    } else {
+                        Err(collected_errors)
+                    }
+                }
+                Some(_) => panic!("user_types contains a non-struct type"),
+                None => Err(vec![TypeError::UndeclaredType(struct_type_name.clone())]),
             }
         }
     }
@@ -782,17 +826,6 @@ mod tests {
                 "x".to_string()
             )])
         );
-    }
-
-    fn point_type_decl() -> TypeDeclaration {
-        TypeDeclaration {
-            info: INFO,
-            name: "Point".to_string(),
-            fields: HashMap::from([
-                ("x".to_string(), Type::Integer),
-                ("y".to_string(), Type::Integer),
-            ]),
-        }
     }
 
     #[test]

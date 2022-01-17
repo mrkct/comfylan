@@ -84,6 +84,7 @@ pub enum Expression {
     ),
     UnaryOperation(SourceInfo, Option<Type>, UnaryOperator, Box<Expression>),
     ArrayInitializer(SourceInfo, Option<Type>, Vec<Box<Expression>>),
+    StructInitializer(SourceInfo, String, HashMap<String, Box<Expression>>),
     FunctionCall(SourceInfo, Option<Type>, Box<Expression>, Vec<Expression>),
 }
 

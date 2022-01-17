@@ -18,7 +18,8 @@ Struct-Declaration := struct <identifier> { <identifier> : <Type> (, <identifier
 Type := identifier | [ Type ]
 Arg := identifier : <Type>
 Block := { Statement* }
-Statement := (<Block> | <LetDeclaration> | <VarDeclaration> | <Assignment> | <IfExpr> | <WhileExpr> | <ForExpr> | <Expr>) ;
+Statement := ( <Block> | <LetDeclaration> | <VarDeclaration> | <Assignment> |
+               <IfExpr> | <WhileExpr> | <ForExpr> | <Expr> ) ;
 LetDeclaration := let identifier (: <Type>) = <Expr>
 VarDeclaration := var identifier (: <Type>) = <Expr>
 Assignment := identifier = <Expr>
@@ -33,8 +34,11 @@ P3Expr := P4Expr ( (+|-) P4Expr )*
 P4Expr := <P5Expr> ( (*|/|.) <P5Expr> )*
 P5Expr := (-|not) <P6Expr> | <P6Expr>
 P6Expr := <P7Expr><P6Expr'>
-P6Expr' := ( <',' separated list of <Expr>> )P6Expr' | [<Expr>]P6Expr' | '.' identifier | <Empty>
-Value := <Constant> | '(' <Expr> ')' | '[' <',' separated list of <Expr>> ']' | <Value> '.' identifier | identifier
+P6Expr' := ( <',' separated list of <Expr>> ) P6Expr' | [<Expr>]P6Expr' |
+           '.' identifier | <Empty>
+Value := <Constant> | '(' <Expr> ')' | [ ',' separated list of <Expr> ]|
+         <StructInitializer> | identifier
+StructInitializer : = new <Identifier> { , separated list of <Identifier>=<Expr> }
 Constant := integer | floating_point | string | KeywordTrue | KeywordFalse
 */
 
@@ -189,6 +193,10 @@ impl<'a> Parser<'a> {
                 return result;
             }
 
+            if let result @ Some(_) = self.parse_struct_initialization() {
+                return result;
+            }
+
             None
         })
     }
@@ -201,6 +209,28 @@ impl<'a> Parser<'a> {
             try_consume!(self.tokens, TokenKind::CloseSquareBracket)?;
             Some(Box::new(Expression::ArrayInitializer(
                 TODO_INFO, None, values,
+            )))
+        })
+    }
+
+    fn parse_struct_initialization(&mut self) -> Option<Box<Expression>> {
+        rewinding_if_none!(self, {
+            try_consume!(self.tokens, TokenKind::KeywordNew)?;
+            let (_type_name_token, type_name) = self.try_consume_identifier()?;
+            try_consume!(self.tokens, TokenKind::OpenCurlyBracket)?;
+            let values = self.parse_token_separated_list_of(TokenKind::Comma, |myself| {
+                rewinding_if_none!(myself, {
+                    let (_field_name_token, field_name) = myself.try_consume_identifier()?;
+                    try_consume!(myself.tokens, TokenKind::Equal)?;
+                    let field_value = myself.parse_expr()?;
+                    Some((field_name, field_value))
+                })
+            })?;
+            try_consume!(self.tokens, TokenKind::CloseCurlyBracket)?;
+            Some(Box::new(Expression::StructInitializer(
+                TODO_INFO,
+                type_name,
+                HashMap::from_iter(values.into_iter()),
             )))
         })
     }
@@ -1585,6 +1615,57 @@ mod tests {
                 I,
                 Box::new(Expression::Accessor(I, ident("a"), "b".to_string())),
                 "c".to_string()
+            )))
+        );
+    }
+
+    #[test]
+    fn struct_declaration() {
+        let tokens = vec![
+            tok(TokenKind::KeywordNew),
+            tok(TokenKind::Identifier("Point")),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::Identifier("x")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(1)),
+            tok(TokenKind::Comma),
+            tok(TokenKind::Identifier("y")),
+            tok(TokenKind::Equal),
+            tok(TokenKind::Integer(2)),
+            tok(TokenKind::CloseCurlyBracket),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_struct_initialization(),
+            Some(Box::new(Expression::StructInitializer(
+                I,
+                "Point".to_string(),
+                HashMap::from([("x".to_string(), intval(1)), ("y".to_string(), intval(2))])
+            )))
+        );
+    }
+
+    #[test]
+    fn direct_access_to_initialized_struct() {
+        let tokens = vec![
+            tok(TokenKind::KeywordNew),
+            tok(TokenKind::Identifier("Point")),
+            tok(TokenKind::OpenCurlyBracket),
+            tok(TokenKind::CloseCurlyBracket),
+            tok(TokenKind::Period),
+            tok(TokenKind::Identifier("x")),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            parser.parse_expr(),
+            Some(Box::new(Expression::Accessor(
+                I,
+                Box::new(Expression::StructInitializer(
+                    I,
+                    "Point".to_string(),
+                    HashMap::new()
+                )),
+                "x".to_string()
             )))
         );
     }

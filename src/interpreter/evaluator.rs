@@ -1,6 +1,6 @@
 use super::typechecking::Type;
 use crate::interpreter::{ast::*, environment::Env};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq)]
 pub enum EvaluationError {
@@ -124,6 +124,17 @@ impl Expression {
                 }
                 errors => errors,
             },
+            Expression::StructInitializer(_, struct_type_name, fields) => {
+                let mut f = HashMap::new();
+                for (field_name, expr) in fields {
+                    let value = expr.eval(env)?;
+                    f.insert(field_name.clone(), value);
+                }
+                Ok(ImmediateValue::Struct(
+                    Type::TypeReference(struct_type_name.clone()),
+                    Rc::new(RefCell::new(f)),
+                ))
+            }
         }
     }
 
