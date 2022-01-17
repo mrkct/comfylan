@@ -13,7 +13,7 @@ lazy_static! {
     ); 4] = [
         (
             "print",
-            Type::Closure(vec![], Box::new(Type::Void)),
+            Type::Closure(vec![Type::Any], Box::new(Type::Void)),
             native_print
         ),
         (
