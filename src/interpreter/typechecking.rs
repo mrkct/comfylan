@@ -1,4 +1,4 @@
-use crate::interpreter::{ast::*, environment::*};
+use crate::interpreter::{ast::*, environment::*, native};
 use std::{borrow::BorrowMut, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -16,7 +16,7 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn is_subtype_of(&self, env: &Env<Type>, other: &Type) -> bool {
+    pub fn is_subtype_of(&self, _user_types: &HashMap<String, Type>, other: &Type) -> bool {
         // TODO: Actually implement this
         self == other || other == &Type::Any
     }
@@ -117,9 +117,13 @@ pub enum TypeError {
     MismatchedReturnType(Type, Type),
     NoSuchFieldInStruct(Type, String),
     CannotAccessFieldInNonStructType(Type, String),
+    UndeclaredType(String),
 }
 
-fn find_closest_common_parent_type(env: &Env<Type>, types: &[Type]) -> Option<Type> {
+fn find_closest_common_parent_type(
+    user_types: &HashMap<String, Type>,
+    types: &[Type],
+) -> Option<Type> {
     // TODO: This is a super stupid and bad implementation
     if types.is_empty() {
         return None;
@@ -127,13 +131,13 @@ fn find_closest_common_parent_type(env: &Env<Type>, types: &[Type]) -> Option<Ty
 
     let mut highest_type = types.first().unwrap();
     for t in types {
-        if highest_type.is_subtype_of(env, t) {
+        if highest_type.is_subtype_of(user_types, t) {
             highest_type = t;
         }
     }
 
     for t in types {
-        if !t.is_subtype_of(env, highest_type) {
+        if !t.is_subtype_of(user_types, highest_type) {
             return None;
         }
     }
@@ -141,10 +145,15 @@ fn find_closest_common_parent_type(env: &Env<Type>, types: &[Type]) -> Option<Ty
 }
 
 trait Typecheckable {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>);
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>);
 }
 
 fn eval_type_of_expression(
+    user_types: &HashMap<String, Type>,
     env: &Env<Type>,
     expression: &Expression,
 ) -> Result<Type, Vec<TypeError>> {
@@ -154,13 +163,13 @@ fn eval_type_of_expression(
             .ok_or_else(|| vec![TypeError::UndeclaredSymbolInExpression(symbol.clone())]),
         Expression::Value(v) => Ok(v.get_type()),
         Expression::ArrayInitializer(_, Some(expected_type), expressions) => {
-            match eval_types_or_collect_errors(env, expressions) {
+            match eval_types_or_collect_errors(user_types, env, expressions) {
                 Err(errors) => Err(errors),
                 Ok(types) => {
                     let type_errors = types
                         .iter()
                         .filter_map(|t| {
-                            if t.is_subtype_of(env, expected_type) {
+                            if t.is_subtype_of(user_types, expected_type) {
                                 None
                             } else {
                                 Some(TypeError::MismatchedTypes(expected_type.clone(), t.clone()))
@@ -176,7 +185,7 @@ fn eval_type_of_expression(
             }
         }
         Expression::ArrayInitializer(_, None, expressions) => {
-            match eval_types_or_collect_errors(env, expressions) {
+            match eval_types_or_collect_errors(user_types, env, expressions) {
                 Err(errors) => Err(errors),
                 Ok(_types) => {
                     // TODO: Find out the closest parent type between all of the types
@@ -186,8 +195,8 @@ fn eval_type_of_expression(
         }
         Expression::BinaryOperation(_, expected_type, left, op, right) => {
             match (
-                eval_type_of_expression(env, left),
-                eval_type_of_expression(env, right),
+                eval_type_of_expression(user_types, env, left),
+                eval_type_of_expression(user_types, env, right),
             ) {
                 (Ok(left), Ok(right)) => match (expected_type, op.get_type(&left, &right)) {
                     (_, None) => Err(vec![TypeError::CannotApplyBinaryOperation(
@@ -210,7 +219,7 @@ fn eval_type_of_expression(
             }
         }
         Expression::UnaryOperation(_, expected_type, op, expr) => {
-            match eval_type_of_expression(env, expr) {
+            match eval_type_of_expression(user_types, env, expr) {
                 Ok(t) => match (expected_type, op.get_type(&t)) {
                     (_, None) => Err(vec![TypeError::CannotApplyUnaryOperation(*op, t)]),
                     (None, Some(t)) => Ok(t),
@@ -226,7 +235,7 @@ fn eval_type_of_expression(
             }
         }
         Expression::FunctionCall(_, _, function, args) => {
-            match eval_type_of_expression(env, function) {
+            match eval_type_of_expression(user_types, env, function) {
                 Ok(Type::Closure(arg_types, return_type)) => {
                     if arg_types.len() != args.len() {
                         return Err(vec![TypeError::WrongArgumentNumberToFunctionCall(
@@ -237,7 +246,7 @@ fn eval_type_of_expression(
 
                     let mut errors = vec![];
                     for (expected, expr) in arg_types.iter().zip(args) {
-                        match (expected, eval_type_of_expression(env, expr)) {
+                        match (expected, eval_type_of_expression(user_types, env, expr)) {
                             (expected, Ok(actual)) if expected == &actual => {}
                             (expected, Ok(actual)) => {
                                 errors.push(TypeError::MismatchedTypes(expected.clone(), actual));
@@ -261,28 +270,37 @@ fn eval_type_of_expression(
             }
         }
         Expression::Accessor(_, struct_expr, field_name) => {
-            match eval_type_of_expression(env, struct_expr) {
-                Ok(Type::Struct(struct_name, fields)) => {
-                    if let Some(field_type) = fields.get(field_name) {
-                        Ok(field_type.clone())
-                    } else {
-                        Err(vec![TypeError::NoSuchFieldInStruct(
-                            Type::Struct(struct_name, fields),
-                            field_name.clone(),
-                        )])
+            match eval_type_of_expression(user_types, env, struct_expr) {
+                Ok(Type::TypeReference(struct_type_name)) => {
+                    match user_types.get(&struct_type_name) {
+                        Some(Type::Struct(_, fields)) => {
+                            if let Some(field_type) = fields.get(field_name) {
+                                Ok(field_type.clone())
+                            } else {
+                                Err(vec![TypeError::NoSuchFieldInStruct(
+                                    Type::TypeReference(struct_type_name),
+                                    field_name.to_string(),
+                                )])
+                            }
+                        }
+                        Some(_) => panic!(
+                            "there is another user-defined type with accessors other than structs?"
+                        ),
+                        None => Err(vec![TypeError::UndeclaredType(struct_type_name)]),
                     }
                 }
                 Ok(not_a_struct) => Err(vec![TypeError::CannotAccessFieldInNonStructType(
                     not_a_struct,
-                    field_name.clone(),
+                    field_name.to_string(),
                 )]),
-                errors => errors,
+                Err(errors) => Err(errors),
             }
         }
     }
 }
 
 fn eval_types_or_collect_errors(
+    user_types: &HashMap<String, Type>,
     env: &Env<Type>,
     expressions: &[Box<Expression>],
 ) -> Result<Vec<Type>, Vec<TypeError>> {
@@ -291,7 +309,7 @@ fn eval_types_or_collect_errors(
     let mut collected_errors = vec![];
 
     for e in expressions {
-        match eval_type_of_expression(env, e) {
+        match eval_type_of_expression(user_types, env, e) {
             Ok(t) if collected_errors.is_empty() => collected_types.push(t),
             Err(mut errors) => collected_errors.append(&mut errors),
             _ => {}
@@ -306,13 +324,14 @@ fn eval_types_or_collect_errors(
 }
 
 fn verify_type_or_collect_errors(
+    user_types: &HashMap<String, Type>,
     env: &mut Rc<Env<Type>>,
     expr: &Expression,
     expected_type: Type,
     errors: &mut Vec<TypeError>,
 ) {
-    match eval_type_of_expression(env, expr) {
-        Ok(t) if t.is_subtype_of(env, &expected_type) => {}
+    match eval_type_of_expression(user_types, env, expr) {
+        Ok(t) if t.is_subtype_of(user_types, &expected_type) => {}
         Ok(t) => {
             errors.push(TypeError::MismatchedTypes(expected_type, t));
         }
@@ -323,11 +342,15 @@ fn verify_type_or_collect_errors(
 }
 
 impl Typecheckable for Declaration {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
-        let actual_type = eval_type_of_expression(env, &self.rvalue);
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
+        let actual_type = eval_type_of_expression(user_types, env, &self.rvalue);
         match (&self.expected_type, actual_type) {
             (_, Err(errors)) => (Some(Type::Void), Some(errors)),
-            (Some(expected), Ok(actual)) if actual.is_subtype_of(env, expected) => {
+            (Some(expected), Ok(actual)) if actual.is_subtype_of(user_types, expected) => {
                 env.borrow_mut().declare(&self.name, expected.clone());
                 (Some(Type::Void), None)
             }
@@ -344,15 +367,19 @@ impl Typecheckable for Declaration {
 }
 
 impl Typecheckable for Assignment {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
         match (
-            eval_type_of_expression(env, &self.lvalue),
-            eval_type_of_expression(env, &self.rvalue),
+            eval_type_of_expression(user_types, env, &self.lvalue),
+            eval_type_of_expression(user_types, env, &self.rvalue),
         ) {
             (Ok(left), Ok(right)) => {
                 let errors = match self.operator {
                     AssignmentOperator::Equal => {
-                        if right.is_subtype_of(env, &left) {
+                        if right.is_subtype_of(user_types, &left) {
                             None
                         } else {
                             Some(vec![TypeError::MismatchedTypes(left, right)])
@@ -415,19 +442,29 @@ impl Typecheckable for Assignment {
 }
 
 impl Typecheckable for If {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
         let mut collected_errors = vec![];
-        verify_type_or_collect_errors(env, &self.condition, Type::Boolean, &mut collected_errors);
+        verify_type_or_collect_errors(
+            user_types,
+            env,
+            &self.condition,
+            Type::Boolean,
+            &mut collected_errors,
+        );
         {
             let mut child = Env::create_child(env);
-            if let (_, Some(mut errors)) = self.branch_true.typecheck(&mut child) {
+            if let (_, Some(mut errors)) = self.branch_true.typecheck(user_types, &mut child) {
                 collected_errors.append(&mut errors);
             }
         }
         {
             let mut child = Env::create_child(env);
             if let Some(branch_false) = &self.branch_false {
-                if let (_, Some(mut errors)) = branch_false.typecheck(&mut child) {
+                if let (_, Some(mut errors)) = branch_false.typecheck(user_types, &mut child) {
                     collected_errors.append(&mut errors);
                 }
             }
@@ -445,18 +482,28 @@ impl Typecheckable for If {
 }
 
 impl Typecheckable for For {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
         let mut collected_errors = vec![];
         let mut child = Env::create_child(env);
-        if let (_, Some(mut errors)) = self.pre.typecheck(&mut child) {
+        if let (_, Some(mut errors)) = self.pre.typecheck(user_types, &mut child) {
             collected_errors.append(&mut errors);
         }
 
-        verify_type_or_collect_errors(env, &self.condition, Type::Boolean, &mut collected_errors);
-        if let (_, Some(mut errors)) = self.post.typecheck(&mut child) {
+        verify_type_or_collect_errors(
+            user_types,
+            env,
+            &self.condition,
+            Type::Boolean,
+            &mut collected_errors,
+        );
+        if let (_, Some(mut errors)) = self.post.typecheck(user_types, &mut child) {
             collected_errors.append(&mut errors);
         }
-        if let (_, Some(mut errors)) = self.body.typecheck(&mut child) {
+        if let (_, Some(mut errors)) = self.body.typecheck(user_types, &mut child) {
             collected_errors.append(&mut errors);
         }
 
@@ -472,11 +519,21 @@ impl Typecheckable for For {
 }
 
 impl Typecheckable for While {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
         let mut collected_errors = vec![];
         let mut child = Env::create_child(env);
-        verify_type_or_collect_errors(env, &self.condition, Type::Boolean, &mut collected_errors);
-        if let (_, Some(mut errors)) = self.body.typecheck(&mut child) {
+        verify_type_or_collect_errors(
+            user_types,
+            env,
+            &self.condition,
+            Type::Boolean,
+            &mut collected_errors,
+        );
+        if let (_, Some(mut errors)) = self.body.typecheck(user_types, &mut child) {
             collected_errors.append(&mut errors);
         }
 
@@ -492,19 +549,26 @@ impl Typecheckable for While {
 }
 
 impl Typecheckable for Block {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
         let mut collected_errors = vec![];
         let mut collected_return_types = vec![];
 
         for statement in &self.statements {
-            match statement.typecheck(env) {
+            match statement.typecheck(user_types, env) {
                 (Some(Type::Void), None) => {}
                 (Some(t), None) => collected_return_types.push(t),
                 (Some(t), Some(mut errors)) => {
                     collected_errors.append(&mut errors);
                     collected_return_types.push(t);
                 }
-                _ => unreachable!(),
+                (None, Some(mut errors)) => {
+                    collected_errors.append(&mut errors);
+                }
+                (None, None) => {}
             }
         }
 
@@ -512,7 +576,7 @@ impl Typecheckable for Block {
             if collected_return_types.is_empty() {
                 Some(Type::Void)
             } else if let Some(common_type) =
-                find_closest_common_parent_type(env, &collected_return_types)
+                find_closest_common_parent_type(user_types, &collected_return_types)
             {
                 Some(common_type)
             } else {
@@ -533,8 +597,12 @@ impl Typecheckable for Block {
 }
 
 impl Typecheckable for StatementExpression {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
-        if let Err(e) = eval_type_of_expression(env, &self.expression) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
+        if let Err(e) = eval_type_of_expression(user_types, env, &self.expression) {
             (Some(Type::Void), Some(e))
         } else {
             (Some(Type::Void), None)
@@ -543,8 +611,12 @@ impl Typecheckable for StatementExpression {
 }
 
 impl Typecheckable for Return {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
-        match eval_type_of_expression(env, &self.expression) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
+        match eval_type_of_expression(user_types, env, &self.expression) {
             Ok(t) => (Some(t), None),
             Err(e) => (None, Some(e)),
         }
@@ -552,28 +624,36 @@ impl Typecheckable for Return {
 }
 
 impl Typecheckable for Statement {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
         match self {
-            Statement::Declaration(x) => x.typecheck(env),
-            Statement::Assignment(x) => x.typecheck(env),
-            Statement::If(x) => x.typecheck(env),
-            Statement::For(x) => x.typecheck(env),
-            Statement::While(x) => x.typecheck(env),
-            Statement::Return(x) => x.typecheck(env),
-            Statement::Block(x) => x.typecheck(env),
-            Statement::StatementExpression(x) => x.typecheck(env),
+            Statement::Declaration(x) => x.typecheck(user_types, env),
+            Statement::Assignment(x) => x.typecheck(user_types, env),
+            Statement::If(x) => x.typecheck(user_types, env),
+            Statement::For(x) => x.typecheck(user_types, env),
+            Statement::While(x) => x.typecheck(user_types, env),
+            Statement::Return(x) => x.typecheck(user_types, env),
+            Statement::Block(x) => x.typecheck(user_types, env),
+            Statement::StatementExpression(x) => x.typecheck(user_types, env),
         }
     }
 }
 
 impl Typecheckable for FunctionDeclaration {
-    fn typecheck(&self, env: &mut Rc<Env<Type>>) -> (Option<Type>, Option<Vec<TypeError>>) {
+    fn typecheck(
+        &self,
+        user_types: &HashMap<String, Type>,
+        env: &mut Rc<Env<Type>>,
+    ) -> (Option<Type>, Option<Vec<TypeError>>) {
         let mut child = Env::create_child(env);
         for (argname, argtype) in &self.args {
             child.declare(argname, argtype.clone());
         }
-        match self.block.typecheck(&mut child) {
-            (Some(t), None) if t.is_subtype_of(env, &self.return_type) => (None, None),
+        match self.block.typecheck(user_types, &mut child) {
+            (Some(t), None) if t.is_subtype_of(user_types, &self.return_type) => (None, None),
             (Some(t), maybe_errors) => {
                 let mismatched_return_type =
                     TypeError::MismatchedReturnType(self.return_type.clone(), t);
@@ -584,15 +664,18 @@ impl Typecheckable for FunctionDeclaration {
                     (None, Some(vec![mismatched_return_type]))
                 }
             }
+            (None, errors @ Some(_)) => (None, errors),
             _ => unreachable!(),
         }
     }
 }
 
 pub fn typecheck_program(program: &Program) -> Result<(), Vec<TypeError>> {
+    let mut user_types: HashMap<String, Type> = HashMap::new();
     let mut type_env = Env::empty();
+    native::fill_type_env_with_native_functions(&type_env);
     for (name, type_decl) in &program.type_declarations {
-        type_env.declare(name, type_decl.into());
+        user_types.insert(name.to_string(), type_decl.into());
     }
     for (name, func_decl) in &program.function_declarations {
         type_env.declare(name, func_decl.into());
@@ -600,7 +683,7 @@ pub fn typecheck_program(program: &Program) -> Result<(), Vec<TypeError>> {
 
     let mut collected_errors = vec![];
     for func_decl in program.function_declarations.values() {
-        if let (_, Some(mut errors)) = func_decl.typecheck(&mut type_env) {
+        if let (_, Some(mut errors)) = func_decl.typecheck(&user_types, &mut type_env) {
             collected_errors.append(&mut errors);
         }
     }
@@ -632,7 +715,10 @@ mod tests {
             Box::new(Expression::Value(ImmediateValue::FloatingPoint(3.14))),
         );
         let env = Env::empty();
-        assert_eq!(eval_type_of_expression(&env, &e), Ok(Type::FloatingPoint));
+        assert_eq!(
+            eval_type_of_expression(&HashMap::new(), &env, &e),
+            Ok(Type::FloatingPoint)
+        );
     }
 
     #[test]
@@ -648,7 +734,7 @@ mod tests {
             Box::new(Expression::Identifier(INFO, "x".to_string())),
         );
         assert_eq!(
-            eval_type_of_expression(&env, &e),
+            eval_type_of_expression(&HashMap::new(), &env, &e),
             Err(vec![TypeError::CannotApplyBinaryOperation(
                 Type::Integer,
                 BinaryOperator::Add,
@@ -675,6 +761,97 @@ mod tests {
                 Box::new(Expression::Value(ImmediateValue::Integer(1))),
             )),
         );
-        assert_eq!(eval_type_of_expression(&env, &e), Ok(Type::Boolean));
+        assert_eq!(
+            eval_type_of_expression(&HashMap::new(), &env, &e),
+            Ok(Type::Boolean)
+        );
+    }
+
+    #[test]
+    fn undeclared_variable_in_expr() {
+        let e = Expression::BinaryOperation(
+            INFO,
+            None,
+            Box::new(Expression::Value(ImmediateValue::Integer(1))),
+            BinaryOperator::Add,
+            Box::new(Expression::Identifier(INFO, "x".to_string())),
+        );
+        assert_eq!(
+            eval_type_of_expression(&HashMap::new(), &Env::empty(), &e),
+            Err(vec![TypeError::UndeclaredSymbolInExpression(
+                "x".to_string()
+            )])
+        );
+    }
+
+    fn point_type_decl() -> TypeDeclaration {
+        TypeDeclaration {
+            info: INFO,
+            name: "Point".to_string(),
+            fields: HashMap::from([
+                ("x".to_string(), Type::Integer),
+                ("y".to_string(), Type::Integer),
+            ]),
+        }
+    }
+
+    #[test]
+    fn return_struct() {
+        let program = FunctionDeclaration {
+            info: INFO,
+            name: "get_point".to_string(),
+            args: vec![],
+            return_type: Type::TypeReference("Point".to_string()),
+            block: Block {
+                _info: INFO,
+                statements: vec![Statement::Return(Return {
+                    _info: INFO,
+                    expression: Expression::Identifier(INFO, "point_struct".to_string()),
+                })],
+            },
+        };
+
+        let mut env = Env::empty();
+        env.declare("point_struct", Type::TypeReference("Point".to_string()));
+        let user_types = HashMap::from([(
+            "Point".to_string(),
+            Type::Struct("Point".to_string(), HashMap::new()),
+        )]);
+
+        assert!(program.typecheck(&user_types, &mut env).1.is_none());
+    }
+
+    #[test]
+    fn return_struct_field() {
+        let program = FunctionDeclaration {
+            info: INFO,
+            name: "get_point".to_string(),
+            args: vec![],
+            return_type: Type::Integer,
+            block: Block {
+                _info: INFO,
+                statements: vec![Statement::Return(Return {
+                    _info: INFO,
+                    expression: Expression::Accessor(
+                        INFO,
+                        Box::new(Expression::Identifier(INFO, "point_struct".to_string())),
+                        "x".to_string(),
+                    ),
+                })],
+            },
+        };
+
+        let mut env = Env::empty();
+        env.declare("point_struct", Type::TypeReference("Point".to_string()));
+
+        let user_types = HashMap::from([(
+            "Point".to_string(),
+            Type::Struct(
+                "Point".to_string(),
+                HashMap::from([("x".to_string(), Type::Integer)]),
+            ),
+        )]);
+
+        assert!(program.typecheck(&user_types, &mut env).1.is_none());
     }
 }
