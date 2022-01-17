@@ -17,8 +17,13 @@ pub enum Type {
 
 impl Type {
     pub fn is_subtype_of(&self, _user_types: &HashMap<String, Type>, other: &Type) -> bool {
-        // TODO: Actually implement this
-        self == other || other == &Type::Any
+        if self == &Type::Any || other == &Type::Any || self == other {
+            return true;
+        }
+        match (self, other) {
+            (Type::Array(inner1), Type::Array(inner2)) => inner1.is_subtype_of(_user_types, inner2),
+            _ => false,
+        }
     }
 }
 
@@ -249,7 +254,8 @@ fn eval_type_of_expression(
                     let mut errors = vec![];
                     for (expected, expr) in arg_types.iter().zip(args) {
                         match (expected, eval_type_of_expression(user_types, env, expr)) {
-                            (expected, Ok(actual)) if expected == &actual => {}
+                            (expected, Ok(actual))
+                                if actual.is_subtype_of(user_types, expected) => {}
                             (expected, Ok(actual)) => {
                                 errors.push(TypeError::MismatchedTypes(expected.clone(), actual));
                             }
