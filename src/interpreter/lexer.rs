@@ -53,6 +53,7 @@ pub enum TokenKind<'a> {
     KeywordFalse,
     KeywordReturn,
     KeywordStruct,
+    KeywordNew,
 }
 
 #[derive(Debug, PartialEq)]
@@ -196,6 +197,7 @@ impl<'a> Iterator for Lexer<'a> {
             ("false", TokenKind::KeywordFalse),
             ("return", TokenKind::KeywordReturn),
             ("struct", TokenKind::KeywordStruct),
+            ("new", TokenKind::KeywordNew),
         ];
 
         if let Some(captures) = FLOATING_POINT_REGEX.captures(self.remaining_string) {
@@ -438,8 +440,9 @@ mod tests {
 
     #[test]
     fn keywords_and_identifiers() {
-        let lexer =
-            Lexer::new("fn fni type typee false falsex true truex if for while and or not struct");
+        let lexer = Lexer::new(
+            "fn fni type typee false falsex true truex if for while and or not struct new",
+        );
         let tokens = lexer.map(|token| token.unwrap().kind).collect::<Vec<_>>();
         assert_eq!(
             tokens,
@@ -458,7 +461,8 @@ mod tests {
                 TokenKind::KeywordAnd,
                 TokenKind::KeywordOr,
                 TokenKind::KeywordNot,
-                TokenKind::KeywordStruct
+                TokenKind::KeywordStruct,
+                TokenKind::KeywordNew
             ]
         );
     }
