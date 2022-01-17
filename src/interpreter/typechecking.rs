@@ -697,7 +697,9 @@ impl Typecheckable for FunctionDeclaration {
             child.declare(argname, argtype.clone());
         }
         match self.block.typecheck(user_types, &mut child) {
-            (Some(t), None) if t.is_subtype_of(user_types, &self.return_type) => (None, None),
+            (Some(t), maybe_errors) if t.is_subtype_of(user_types, &self.return_type) => {
+                (None, maybe_errors)
+            }
             (Some(t), maybe_errors) => {
                 let mismatched_return_type =
                     TypeError::MismatchedReturnType(self.return_type.clone(), t);
