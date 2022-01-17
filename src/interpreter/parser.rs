@@ -332,7 +332,7 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expr()?;
             Some(Declaration {
                 _info: TODO_INFO,
-                name: name,
+                name,
                 expected_type: declared_type.map(|t| *t),
                 immutable: true,
                 rvalue: *expr,
@@ -352,7 +352,7 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expr()?;
             Some(Declaration {
                 _info: TODO_INFO,
-                name: name,
+                name,
                 expected_type: declared_type.map(|t| *t),
                 immutable: false,
                 rvalue: *expr,
