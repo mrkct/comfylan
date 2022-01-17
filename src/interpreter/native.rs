@@ -82,10 +82,16 @@ fn print_immediate_value(v: &ImmediateValue) {
         ImmediateValue::Void => print!("[Void]"),
         ImmediateValue::Struct(_, fields) => {
             print!("{{");
-            fields.borrow().iter().for_each(|(key, val)| {
-                print!("{}=", key);
+            let borrow = fields.borrow();
+            let mut iter = borrow.iter();
+            if let Some((name, val)) = iter.next() {
+                print!("{}=", name);
                 print_immediate_value(val);
-            });
+            }
+            for (name, val) in iter {
+                print!(", {}=", name);
+                print_immediate_value(val);
+            }
             print!("}}");
         }
     }
