@@ -17,7 +17,7 @@ pub enum Type {
 
 impl Type {
     pub fn is_subtype_of(&self, _user_types: &HashMap<String, Type>, other: &Type) -> bool {
-        if self == &Type::Any || other == &Type::Any || self == other {
+        if other == &Type::Any || self == other {
             return true;
         }
         match (self, other) {
