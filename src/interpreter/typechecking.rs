@@ -12,6 +12,7 @@ pub enum Type {
     Closure(Vec<Type>, Box<Type>),
     TypeReference(String),
     Struct(String, HashMap<String, Type>),
+    VarArgs(Box<Type>),
     Any,
 }
 
@@ -244,30 +245,52 @@ fn eval_type_of_expression(
         Expression::FunctionCall(_, _, function, args) => {
             match eval_type_of_expression(user_types, env, function) {
                 Ok(Type::Closure(arg_types, return_type)) => {
-                    if arg_types.len() != args.len() {
-                        return Err(vec![TypeError::WrongArgumentNumberToFunctionCall(
-                            arg_types.len(),
-                            args.len(),
-                        )]);
-                    }
+                    let mut collected_errors = vec![];
 
-                    let mut errors = vec![];
-                    for (expected, expr) in arg_types.iter().zip(args) {
-                        match (expected, eval_type_of_expression(user_types, env, expr)) {
-                            (expected, Ok(actual))
-                                if actual.is_subtype_of(user_types, expected) => {}
-                            (expected, Ok(actual)) => {
-                                errors.push(TypeError::MismatchedTypes(expected.clone(), actual));
+                    let arg_types_len = arg_types.len();
+                    let args_len = args.len();
+                    let mut actual_args = args.iter().peekable();
+
+                    for expected in arg_types {
+                        if let Type::VarArgs(internal) = expected {
+                            while let Some(e) = actual_args.peek() {
+                                match eval_type_of_expression(user_types, env, e) {
+                                    Ok(actual) if actual.is_subtype_of(user_types, &internal) => {
+                                        actual_args.next();
+                                    }
+                                    Ok(_) => {
+                                        break;
+                                    }
+                                    Err(mut errors) => {
+                                        collected_errors.append(&mut errors);
+                                    }
+                                }
                             }
-                            (_, Err(mut error)) => {
-                                errors.append(&mut error);
+                        } else {
+                            let actual = actual_args.next().ok_or_else(|| {
+                                vec![TypeError::WrongArgumentNumberToFunctionCall(
+                                    arg_types_len,
+                                    args_len,
+                                )]
+                            })?;
+
+                            match eval_type_of_expression(user_types, env, actual) {
+                                Ok(actual) if actual.is_subtype_of(user_types, &expected) => {}
+                                Ok(actual) => {
+                                    collected_errors
+                                        .push(TypeError::MismatchedTypes(expected, actual));
+                                }
+                                Err(mut errors) => {
+                                    collected_errors.append(&mut errors);
+                                }
                             }
                         }
                     }
-                    if errors.is_empty() {
+
+                    if collected_errors.is_empty() {
                         Ok(*return_type)
                     } else {
-                        Err(errors)
+                        Err(collected_errors)
                     }
                 }
                 Ok(not_a_closure_type) => Err(vec![TypeError::MismatchedTypes(
@@ -894,5 +917,41 @@ mod tests {
         )]);
 
         assert!(program.typecheck(&user_types, &mut env).1.is_none());
+    }
+
+    #[test]
+    fn call_function_with_var_args() {
+        let program = Statement::StatementExpression(StatementExpression {
+            _info: INFO,
+            expression: Expression::FunctionCall(
+                INFO,
+                None,
+                Box::new(Expression::Identifier(INFO, "my_func".to_string())),
+                vec![
+                    Expression::Value(ImmediateValue::Integer(0)),
+                    Expression::Value(ImmediateValue::FloatingPoint(0.1)),
+                    Expression::Value(ImmediateValue::FloatingPoint(0.2)),
+                    Expression::Value(ImmediateValue::FloatingPoint(0.3)),
+                    Expression::Value(ImmediateValue::String("4".to_string())),
+                    // Intentionally empty
+                ],
+            ),
+        });
+
+        let mut env = Env::empty();
+        env.declare(
+            "my_func",
+            Type::Closure(
+                vec![
+                    Type::Integer,
+                    Type::VarArgs(Box::new(Type::FloatingPoint)),
+                    Type::String,
+                    Type::VarArgs(Box::new(Type::Integer)),
+                ],
+                Box::new(Type::Void),
+            ),
+        );
+
+        assert!(program.typecheck(&HashMap::new(), &mut env).1.is_none());
     }
 }
