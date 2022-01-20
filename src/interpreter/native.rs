@@ -4,13 +4,14 @@ use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Ty
 use std::{cell::RefCell, rc::Rc};
 
 use super::evaluator::EvaluationError;
+use rand::prelude::*;
 
 lazy_static! {
     static ref NATIVE_FUNCTIONS: [(
         &'static str,
         Type,
         fn(Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>
-    ); 4] = [
+    ); 5] = [
         (
             "print",
             Type::Closure(
@@ -42,6 +43,11 @@ lazy_static! {
                 Box::new(Type::Void)
             ),
             native_array_remove
+        ),
+        (
+            "random",
+            Type::Closure(vec![Type::Integer, Type::Integer], Box::new(Type::Integer)),
+            native_random
         )
     ];
 }
@@ -152,5 +158,18 @@ fn native_array_remove(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Eval
             Ok(array.borrow_mut().remove(i))
         }
         _ => panic!("Typechecker failed! Native function 'remove' was called with bad arguments"),
+    }
+}
+
+fn native_random(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+    match (args.get(0), args.get(1)) {
+        (Some(ImmediateValue::Integer(x1)), Some(ImmediateValue::Integer(x2))) => {
+            let low = *x1.min(x2);
+            let high = *x1.max(x2);
+            Ok(ImmediateValue::Integer(
+                rand::thread_rng().gen_range(low..=high),
+            ))
+        }
+        _ => panic!("typechecker failed?"),
     }
 }
