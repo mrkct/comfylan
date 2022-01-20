@@ -568,7 +568,7 @@ impl Typecheckable for For {
 
         verify_type_or_collect_errors(
             user_types,
-            env,
+            &mut child,
             &self.condition,
             Type::Boolean,
             &mut collected_errors,
@@ -953,5 +953,50 @@ mod tests {
         );
 
         assert!(program.typecheck(&HashMap::new(), &mut env).1.is_none());
+    }
+
+    #[test]
+    fn simple_for() {
+        let program = Statement::For(For {
+            _info: INFO,
+            pre: Block {
+                _info: INFO,
+                statements: vec![Statement::Declaration(Declaration {
+                    _info: INFO,
+                    expected_type: None,
+                    name: "i".to_string(),
+                    immutable: false,
+                    rvalue: Expression::Value(ImmediateValue::Integer(0)),
+                })],
+            },
+            condition: Expression::BinaryOperation(
+                INFO,
+                None,
+                Box::new(Expression::Identifier(INFO, "i".to_string())),
+                BinaryOperator::LessThan,
+                Box::new(Expression::Value(ImmediateValue::Integer(10))),
+            ),
+            post: Block {
+                _info: INFO,
+                statements: vec![Statement::Assignment(Assignment {
+                    _info: INFO,
+                    lvalue: Expression::Identifier(INFO, "i".to_string()),
+                    operator: AssignmentOperator::AddEqual,
+                    rvalue: Expression::Value(ImmediateValue::Integer(1)),
+                })],
+            },
+            body: Block {
+                _info: INFO,
+                statements: vec![Statement::StatementExpression(StatementExpression {
+                    _info: INFO,
+                    expression: Expression::Identifier(INFO, "i".to_string()),
+                })],
+            },
+        });
+
+        assert_eq!(
+            program.typecheck(&HashMap::new(), &mut Env::empty()),
+            (Some(Type::Void), None)
+        );
     }
 }
