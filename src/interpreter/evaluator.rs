@@ -1,5 +1,5 @@
 use super::{
-    native::{InternalState, NativeFunction},
+    native::{GameEngineSubsystem, NativeFunction},
     typechecking::Type,
 };
 use crate::interpreter::{ast::*, environment::Env};
@@ -14,11 +14,15 @@ pub enum EvaluationError {
 }
 
 impl Expression {
-    pub fn eval(&self, env: &Env<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+    pub fn eval(
+        &self,
+        subsystem: &mut dyn GameEngineSubsystem,
+        env: &Env<ImmediateValue>,
+    ) -> Result<ImmediateValue, EvaluationError> {
         match self {
             Expression::Value(immediate_value) => Ok(immediate_value.clone()),
             Expression::BinaryOperation(_info, _, left, operator, right) => {
-                match (left.eval(env), right.eval(env)) {
+                match (left.eval(subsystem, env), right.eval(subsystem, env)) {
                     (Ok(left), Ok(right)) => match operator {
                         BinaryOperator::Add => left.add(&right),
                         BinaryOperator::Sub => left.sub(&right),
@@ -39,17 +43,19 @@ impl Expression {
                     (error, _) => error,
                 }
             }
-            Expression::UnaryOperation(info, _, UnaryOperator::Not, left) => match left.eval(env) {
-                Ok(ImmediateValue::Boolean(value)) => Ok(ImmediateValue::Boolean(!value)),
-                Err(error) => Err(error),
-                Ok(value) => panic!(
-                    "[{:?}]: Cannot apply boolean operator 'not' on value of type {:?}",
-                    info,
-                    value.get_type(),
-                ),
-            },
+            Expression::UnaryOperation(info, _, UnaryOperator::Not, left) => {
+                match left.eval(subsystem, env) {
+                    Ok(ImmediateValue::Boolean(value)) => Ok(ImmediateValue::Boolean(!value)),
+                    Err(error) => Err(error),
+                    Ok(value) => panic!(
+                        "[{:?}]: Cannot apply boolean operator 'not' on value of type {:?}",
+                        info,
+                        value.get_type(),
+                    ),
+                }
+            }
             Expression::UnaryOperation(info, _, UnaryOperator::Negation, left) => {
-                match left.eval(env) {
+                match left.eval(subsystem, env) {
                     Ok(ImmediateValue::Integer(x)) => Ok(ImmediateValue::Integer(-x)),
                     Ok(ImmediateValue::FloatingPoint(f)) => Ok(ImmediateValue::FloatingPoint(-f)),
                     Ok(cant_negate) => {
@@ -62,39 +68,41 @@ impl Expression {
                     err => err,
                 }
             }
-            Expression::FunctionCall(info, _, function, args) => match function.eval(env) {
-                Ok(ImmediateValue::Closure(_, closure_env, args_names, statements)) => {
-                    let function_context_env = Env::create_child(&closure_env);
-                    for (argname, argexpr) in args_names.iter().zip(args.iter()) {
-                        let argvalue = argexpr.eval(env)?;
-                        function_context_env.declare(argname, argvalue);
-                    }
+            Expression::FunctionCall(info, _, function, args) => {
+                match function.eval(subsystem, env) {
+                    Ok(ImmediateValue::Closure(_, closure_env, args_names, statements)) => {
+                        let function_context_env = Env::create_child(&closure_env);
+                        for (argname, argexpr) in args_names.iter().zip(args.iter()) {
+                            let argvalue = argexpr.eval(subsystem, env)?;
+                            function_context_env.declare(argname, argvalue);
+                        }
 
-                    statements
-                        .eval(&function_context_env)
-                        .map(|v| v.unwrap_or(ImmediateValue::Void))
-                }
-                Ok(ImmediateValue::NativeFunction(NativeFunction { callback, .. })) => {
-                    let mut evaluated_args = vec![];
-                    evaluated_args.reserve_exact(args.len());
-                    for e in args {
-                        let value = e.eval(env)?;
-                        evaluated_args.push(value);
+                        statements
+                            .eval(subsystem, &function_context_env)
+                            .map(|v| v.unwrap_or(ImmediateValue::Void))
                     }
-                    callback(&mut InternalState {}, evaluated_args)
+                    Ok(ImmediateValue::NativeFunction(NativeFunction { callback, .. })) => {
+                        let mut evaluated_args = vec![];
+                        evaluated_args.reserve_exact(args.len());
+                        for e in args {
+                            let value = e.eval(subsystem, env)?;
+                            evaluated_args.push(value);
+                        }
+                        callback(subsystem, evaluated_args)
+                    }
+                    Ok(value) => panic!(
+                        "[{:?}]: Cannot use value of types {:?} as a function",
+                        info,
+                        value.get_type(),
+                    ),
+                    error => error,
                 }
-                Ok(value) => panic!(
-                    "[{:?}]: Cannot use value of types {:?} as a function",
-                    info,
-                    value.get_type(),
-                ),
-                error => error,
-            },
+            }
             Expression::ArrayInitializer(_, _, values) => {
                 let mut array = vec![];
                 array.reserve_exact(values.len());
                 for e in values {
-                    let value = e.eval(env)?;
+                    let value = e.eval(subsystem, env)?;
                     array.push(value);
                 }
                 Ok(ImmediateValue::Array(
@@ -109,29 +117,31 @@ impl Expression {
                     info, name
                 ),
             },
-            Expression::Accessor(info, struct_expr, field) => match struct_expr.eval(env) {
-                Ok(ImmediateValue::Struct(struct_type, contents)) => {
-                    if let Some(v) = contents.borrow().get(field) {
-                        Ok(v.clone())
-                    } else {
+            Expression::Accessor(info, struct_expr, field) => {
+                match struct_expr.eval(subsystem, env) {
+                    Ok(ImmediateValue::Struct(struct_type, contents)) => {
+                        if let Some(v) = contents.borrow().get(field) {
+                            Ok(v.clone())
+                        } else {
+                            panic!(
+                                "[{:?}]: Tried to access field '{}' of a struct with type {:?}",
+                                info, field, struct_type
+                            );
+                        }
+                    }
+                    Ok(not_a_struct) => {
                         panic!(
-                            "[{:?}]: Tried to access field '{}' of a struct with type {:?}",
-                            info, field, struct_type
+                            "[{:?}]: Tried to access field '{}' of a non-struct value ({:?})",
+                            info, field, not_a_struct
                         );
                     }
+                    errors => errors,
                 }
-                Ok(not_a_struct) => {
-                    panic!(
-                        "[{:?}]: Tried to access field '{}' of a non-struct value ({:?})",
-                        info, field, not_a_struct
-                    );
-                }
-                errors => errors,
-            },
+            }
             Expression::StructInitializer(_, struct_type_name, fields) => {
                 let mut f = HashMap::new();
                 for (field_name, expr) in fields {
-                    let value = expr.eval(env)?;
+                    let value = expr.eval(subsystem, env)?;
                     f.insert(field_name.clone(), value);
                 }
                 Ok(ImmediateValue::Struct(
@@ -142,12 +152,16 @@ impl Expression {
         }
     }
 
-    pub fn eval_to_lvalue(&self, env: &Env<ImmediateValue>) -> Result<LValue, EvaluationError> {
+    pub fn eval_to_lvalue(
+        &self,
+        subsystem: &mut dyn GameEngineSubsystem,
+        env: &Env<ImmediateValue>,
+    ) -> Result<LValue, EvaluationError> {
         match self {
             Expression::Identifier(_, symbol) => Ok(LValue::Identifier(symbol.clone())),
             Expression::BinaryOperation(info, _, array, BinaryOperator::Indexing, index) => {
-                let array = array.eval(env)?;
-                let index = index.eval(env)?;
+                let array = array.eval(subsystem, env)?;
+                let index = index.eval(subsystem, env)?;
                 match (array, index) {
                     (ImmediateValue::Array(_, arr), ImmediateValue::Integer(index)) => {
                         Ok(LValue::IndexInArray(arr, index))
@@ -162,18 +176,20 @@ impl Expression {
                     }
                 }
             }
-            Expression::Accessor(info, struct_expr, field) => match struct_expr.eval(env) {
-                Ok(ImmediateValue::Struct(_, struct_repr)) => {
-                    Ok(LValue::Accessor(struct_repr, field.to_string()))
+            Expression::Accessor(info, struct_expr, field) => {
+                match struct_expr.eval(subsystem, env) {
+                    Ok(ImmediateValue::Struct(_, struct_repr)) => {
+                        Ok(LValue::Accessor(struct_repr, field.to_string()))
+                    }
+                    Ok(not_a_struct) => {
+                        panic!(
+                            "[{:?}]: Cannot access field {} of value {:?} and use it as an lvalue",
+                            info, field, not_a_struct
+                        );
+                    }
+                    Err(errors) => Err(errors),
                 }
-                Ok(not_a_struct) => {
-                    panic!(
-                        "[{:?}]: Cannot access field {} of value {:?} and use it as an lvalue",
-                        info, field, not_a_struct
-                    );
-                }
-                Err(errors) => Err(errors),
-            },
+            }
             other => panic!("Expression {:?} is not an lvalue", other),
         }
     }
@@ -182,6 +198,7 @@ impl Expression {
 trait Evaluable {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError>;
 }
@@ -189,9 +206,10 @@ trait Evaluable {
 impl Evaluable for Declaration {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
-        match self.rvalue.eval(env) {
+        match self.rvalue.eval(subsystem, env) {
             Ok(value) => {
                 env.declare(&self.name, value);
                 Ok(None)
@@ -204,27 +222,28 @@ impl Evaluable for Declaration {
 impl Evaluable for Assignment {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
-        let lvalue = self.lvalue.eval_to_lvalue(env)?;
+        let lvalue = self.lvalue.eval_to_lvalue(subsystem, env)?;
 
         let rvalue = match self.operator {
-            AssignmentOperator::Equal => self.rvalue.eval(env)?,
+            AssignmentOperator::Equal => self.rvalue.eval(subsystem, env)?,
             AssignmentOperator::AddEqual => {
-                let right = self.rvalue.eval(env)?;
-                lvalue.to_expression().eval(env)?.add(&right)?
+                let right = self.rvalue.eval(subsystem, env)?;
+                lvalue.to_expression().eval(subsystem, env)?.add(&right)?
             }
             AssignmentOperator::SubEqual => {
-                let right = self.rvalue.eval(env)?;
-                lvalue.to_expression().eval(env)?.sub(&right)?
+                let right = self.rvalue.eval(subsystem, env)?;
+                lvalue.to_expression().eval(subsystem, env)?.sub(&right)?
             }
             AssignmentOperator::MulEqual => {
-                let right = self.rvalue.eval(env)?;
-                lvalue.to_expression().eval(env)?.mul(&right)?
+                let right = self.rvalue.eval(subsystem, env)?;
+                lvalue.to_expression().eval(subsystem, env)?.mul(&right)?
             }
             AssignmentOperator::DivEqual => {
-                let right = self.rvalue.eval(env)?;
-                lvalue.to_expression().eval(env)?.div(&right)?
+                let right = self.rvalue.eval(subsystem, env)?;
+                lvalue.to_expression().eval(subsystem, env)?.div(&right)?
             }
         };
 
@@ -259,11 +278,12 @@ impl Evaluable for Assignment {
 impl Evaluable for Block {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
         let mut last_returned_value = None;
         for statement in &self.statements {
-            last_returned_value = statement.eval(env)?;
+            last_returned_value = statement.eval(subsystem, env)?;
             if last_returned_value.is_some() {
                 break;
             }
@@ -275,21 +295,25 @@ impl Evaluable for Block {
 impl Evaluable for Return {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
-        Ok(Some(self.expression.eval(env)?))
+        Ok(Some(self.expression.eval(subsystem, env)?))
     }
 }
 
 impl Evaluable for If {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
-        match self.condition.eval(env) {
-            Ok(ImmediateValue::Boolean(true)) => self.branch_true.eval(&Env::create_child(env)),
+        match self.condition.eval(subsystem, env) {
+            Ok(ImmediateValue::Boolean(true)) => {
+                self.branch_true.eval(subsystem, &Env::create_child(env))
+            }
             Ok(ImmediateValue::Boolean(false)) => match &self.branch_false {
-                Some(branch_false) => branch_false.eval(&Env::create_child(env)),
+                Some(branch_false) => branch_false.eval(subsystem, &Env::create_child(env)),
                 None => Ok(None),
             },
             Err(error) => Err(error),
@@ -305,12 +329,13 @@ impl Evaluable for If {
 impl Evaluable for While {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
         loop {
-            match self.condition.eval(env) {
+            match self.condition.eval(subsystem, env) {
                 Ok(ImmediateValue::Boolean(true)) => {
-                    let block_result = self.body.eval(&Env::create_child(env))?;
+                    let block_result = self.body.eval(subsystem, &Env::create_child(env))?;
                     if block_result.is_some() {
                         return Ok(block_result);
                     }
@@ -337,20 +362,23 @@ impl Evaluable for While {
 impl Evaluable for For {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
         let child_env = Env::create_child(env);
-        if let v @ Some(_) = self.pre.eval(&child_env)? {
+        if let v @ Some(_) = self.pre.eval(subsystem, &child_env)? {
             return Ok(v);
         }
 
         loop {
-            match self.condition.eval(&child_env) {
+            match self.condition.eval(subsystem, &child_env) {
                 Ok(ImmediateValue::Boolean(true)) => {
-                    if let v @ Some(_) = self.body.eval(&Env::create_child(&child_env))? {
+                    if let v @ Some(_) =
+                        self.body.eval(subsystem, &Env::create_child(&child_env))?
+                    {
                         return Ok(v);
                     }
-                    if let v @ Some(_) = self.post.eval(&child_env)? {
+                    if let v @ Some(_) = self.post.eval(subsystem, &child_env)? {
                         return Ok(v);
                     }
                 }
@@ -376,9 +404,10 @@ impl Evaluable for For {
 impl Evaluable for StatementExpression {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
-        self.expression.eval(env)?;
+        self.expression.eval(subsystem, env)?;
         Ok(None)
     }
 }
@@ -386,17 +415,18 @@ impl Evaluable for StatementExpression {
 impl Evaluable for Statement {
     fn eval(
         &self,
+        subsystem: &mut dyn GameEngineSubsystem,
         env: &Rc<Env<ImmediateValue>>,
     ) -> Result<Option<ImmediateValue>, EvaluationError> {
         match self {
-            Statement::Declaration(x) => x.eval(env),
-            Statement::Assignment(x) => x.eval(env),
-            Statement::If(x) => x.eval(env),
-            Statement::For(x) => x.eval(env),
-            Statement::While(x) => x.eval(env),
-            Statement::Block(x) => x.eval(env),
-            Statement::StatementExpression(x) => x.eval(env),
-            Statement::Return(x) => x.eval(env),
+            Statement::Declaration(x) => x.eval(subsystem, env),
+            Statement::Assignment(x) => x.eval(subsystem, env),
+            Statement::If(x) => x.eval(subsystem, env),
+            Statement::For(x) => x.eval(subsystem, env),
+            Statement::While(x) => x.eval(subsystem, env),
+            Statement::Block(x) => x.eval(subsystem, env),
+            Statement::StatementExpression(x) => x.eval(subsystem, env),
+            Statement::Return(x) => x.eval(subsystem, env),
         }
     }
 }
@@ -404,6 +434,8 @@ impl Evaluable for Statement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lazy_static::lazy_static;
+    use mockall::mock;
     use std::{collections::HashMap, matches};
 
     const INFO: SourceInfo = SourceInfo {
@@ -443,11 +475,25 @@ mod tests {
         }))
     }
 
+    mock! {
+        Subsystem {}
+        impl GameEngineSubsystem for Subsystem {
+            fn open_window(&mut self, w: u32, h: u32, title: &str) -> Result<(), String>;
+        }
+    }
+
+    lazy_static! {
+        static ref MOCK_SUBSYSTEM: MockSubsystem = MockSubsystem::new();
+    }
+
     #[test]
     fn simple_addition() {
         let e = binop(intval(1), BinaryOperator::Add, intval(2));
         let env = Env::empty();
-        assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(3)));
+        assert_eq!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Ok(ImmediateValue::Integer(3))
+        );
     }
 
     #[test]
@@ -455,14 +501,20 @@ mod tests {
         let e = binop(intval(1), BinaryOperator::Add, ident("x"));
         let env = Env::empty();
         let _ = env.declare("x", ImmediateValue::Integer(2));
-        assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(3)));
+        assert_eq!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Ok(ImmediateValue::Integer(3))
+        );
     }
 
     #[test]
     fn divide_by_zero() {
         let e = Expression::BinaryOperation(INFO, None, intval(1), BinaryOperator::Div, intval(0));
         let env = Env::empty();
-        assert!(matches!(e.eval(&env), Err(EvaluationError::DivisionByZero)));
+        assert!(matches!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Err(EvaluationError::DivisionByZero)
+        ));
     }
 
     #[test]
@@ -473,7 +525,10 @@ mod tests {
             binop(intval(77), BinaryOperator::Div, intval(10)),
         );
         let env = Env::empty();
-        assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(14)));
+        assert_eq!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Ok(ImmediateValue::Integer(14))
+        );
     }
 
     #[test]
@@ -484,7 +539,10 @@ mod tests {
             intval(3),
         );
         let env = Env::empty();
-        assert_eq!(e.eval(&env), Ok(ImmediateValue::FloatingPoint(3.0)));
+        assert_eq!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Ok(ImmediateValue::FloatingPoint(3.0))
+        );
     }
 
     #[test]
@@ -495,7 +553,10 @@ mod tests {
             intval(3),
         );
         let env = Env::empty();
-        assert_eq!(e.eval(&env), Ok(ImmediateValue::FloatingPoint(3.0)));
+        assert_eq!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Ok(ImmediateValue::FloatingPoint(3.0))
+        );
     }
 
     #[test]
@@ -552,7 +613,10 @@ mod tests {
             ),
         );
         let env = Env::empty();
-        assert_eq!(e.eval(&env), Ok(ImmediateValue::Boolean(true)));
+        assert_eq!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Ok(ImmediateValue::Boolean(true))
+        );
     }
 
     #[test]
@@ -570,7 +634,10 @@ mod tests {
             intval(2),
         );
         let env = Env::empty();
-        assert_eq!(e.eval(&env), Ok(ImmediateValue::Integer(9)));
+        assert_eq!(
+            e.eval(&mut MockSubsystem::new(), &env),
+            Ok(ImmediateValue::Integer(9))
+        );
     }
 
     #[test]
@@ -589,7 +656,7 @@ mod tests {
         );
         let env = Env::empty();
         assert!(matches!(
-            e.eval(&env),
+            e.eval(&mut MockSubsystem::new(), &env),
             Err(EvaluationError::ArrayIndexOutOfBounds(3, 3))
         ));
     }
@@ -631,7 +698,7 @@ mod tests {
             })],
         };
 
-        assert_eq!(program.eval(&env), Ok(None));
+        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
         assert_eq!(
             env.cloning_lookup("array"),
             Some(ImmediateValue::Array(
@@ -684,7 +751,10 @@ mod tests {
             ],
         });
         let env = Env::empty();
-        assert_eq!(program.eval(&env), Ok(Some(ImmediateValue::Integer(45))));
+        assert_eq!(
+            program.eval(&mut MockSubsystem::new(), &env),
+            Ok(Some(ImmediateValue::Integer(45)))
+        );
     }
 
     #[test]
@@ -709,7 +779,7 @@ mod tests {
             rvalue: Expression::FunctionCall(INFO, None, ident("add_one"), vec![*intval(2)]),
         });
 
-        assert_eq!(program.eval(&env), Ok(None));
+        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
         assert_eq!(
             env.cloning_lookup("result"),
             Some(ImmediateValue::Integer(3))
@@ -761,7 +831,7 @@ mod tests {
             rvalue: Expression::FunctionCall(INFO, None, ident("factorial"), vec![*intval(7)]),
         };
 
-        assert_eq!(program.eval(&env), Ok(None));
+        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
         assert_eq!(
             env.cloning_lookup("result"),
             Some(ImmediateValue::Integer(5040))
@@ -785,7 +855,7 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&env).is_ok());
+        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(2)));
 
         // var x = 3; x *= 3;
@@ -801,7 +871,7 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&env).is_ok());
+        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(9)));
 
         // var x = 3; x -= 3;
@@ -817,7 +887,7 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&env).is_ok());
+        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(0)));
 
         // var x = 3; x /= 3
@@ -833,7 +903,7 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&env).is_ok());
+        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(1)));
     }
 
@@ -861,7 +931,10 @@ mod tests {
             ),
         );
 
-        assert_eq!(program.eval(&env), Ok(Some(ImmediateValue::Integer(1))));
+        assert_eq!(
+            program.eval(&mut MockSubsystem::new(), &env),
+            Ok(Some(ImmediateValue::Integer(1)))
+        );
     }
 
     #[test]
@@ -891,7 +964,7 @@ mod tests {
             ),
         );
 
-        assert_eq!(program.eval(&env), Ok(None));
+        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
         assert_eq!(
             env.cloning_lookup("point"),
             Some(ImmediateValue::Struct(

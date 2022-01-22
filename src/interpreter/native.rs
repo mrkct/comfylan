@@ -7,7 +7,7 @@ use super::evaluator::EvaluationError;
 use rand::prelude::*;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 6] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 7] = [
         (
             "print",
             NativeFunction {
@@ -70,6 +70,17 @@ lazy_static! {
                 signature: Type::Closure(vec![Type::Integer], Box::new(Type::Void)),
                 callback: native_delay
             }
+        ),
+        (
+            "open_window",
+            NativeFunction {
+                tag: 6,
+                signature: Type::Closure(
+                    vec![Type::Integer, Type::Integer, Type::String],
+                    Box::new(Type::Void)
+                ),
+                callback: native_open_window
+            }
         )
     ];
 }
@@ -78,8 +89,10 @@ lazy_static! {
 pub struct NativeFunction {
     tag: i32,
     pub signature: Type,
-    pub callback:
-        fn(&mut InternalState, Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>,
+    pub callback: fn(
+        &mut dyn GameEngineSubsystem,
+        Vec<ImmediateValue>,
+    ) -> Result<ImmediateValue, EvaluationError>,
 }
 
 impl fmt::Debug for NativeFunction {
@@ -97,7 +110,9 @@ impl PartialEq for NativeFunction {
     }
 }
 
-pub struct InternalState {}
+pub trait GameEngineSubsystem {
+    fn open_window(&mut self, w: u32, h: u32, title: &str) -> Result<(), String>;
+}
 
 pub fn fill_values_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
     for (name, native_function) in NATIVE_FUNCTIONS.iter() {
@@ -112,6 +127,10 @@ pub fn fill_type_env_with_native_functions(env: &Rc<Env<Type>>) {
     for (name, NativeFunction { signature, .. }) in NATIVE_FUNCTIONS.iter() {
         env.declare(name, signature.clone());
     }
+}
+
+pub fn get_default_system_game_engine_subsystem() -> impl GameEngineSubsystem {
+    sdl_subsystem::SdlSubsystem::new()
 }
 
 fn print_immediate_value(v: &ImmediateValue) {
@@ -154,7 +173,7 @@ fn print_immediate_value(v: &ImmediateValue) {
 }
 
 fn native_print(
-    _: &mut InternalState,
+    _: &mut dyn GameEngineSubsystem,
     args: Vec<ImmediateValue>,
 ) -> Result<ImmediateValue, EvaluationError> {
     for arg in args {
@@ -164,7 +183,7 @@ fn native_print(
 }
 
 fn native_array_len(
-    _: &mut InternalState,
+    _: &mut dyn GameEngineSubsystem,
     args: Vec<ImmediateValue>,
 ) -> Result<ImmediateValue, EvaluationError> {
     match args.get(0) {
@@ -194,7 +213,7 @@ fn validate_array_index(
 }
 
 fn native_array_insert(
-    _: &mut InternalState,
+    _: &mut dyn GameEngineSubsystem,
     args: Vec<ImmediateValue>,
 ) -> Result<ImmediateValue, EvaluationError> {
     match (args.get(0), args.get(1), args.get(2)) {
@@ -208,7 +227,7 @@ fn native_array_insert(
 }
 
 fn native_array_remove(
-    _: &mut InternalState,
+    _: &mut dyn GameEngineSubsystem,
     args: Vec<ImmediateValue>,
 ) -> Result<ImmediateValue, EvaluationError> {
     match (args.get(0), args.get(1)) {
@@ -221,7 +240,7 @@ fn native_array_remove(
 }
 
 fn native_random(
-    _: &mut InternalState,
+    _: &mut dyn GameEngineSubsystem,
     args: Vec<ImmediateValue>,
 ) -> Result<ImmediateValue, EvaluationError> {
     match (args.get(0), args.get(1)) {
@@ -237,7 +256,7 @@ fn native_random(
 }
 
 fn native_delay(
-    _: &mut InternalState,
+    _: &mut dyn GameEngineSubsystem,
     args: Vec<ImmediateValue>,
 ) -> Result<ImmediateValue, EvaluationError> {
     match args.get(0) {
@@ -254,5 +273,71 @@ fn native_delay(
             }
         }
         _ => panic!("typechecker failed?"),
+    }
+}
+
+fn native_open_window(
+    subsystem: &mut dyn GameEngineSubsystem,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    match (args.get(0), args.get(1), args.get(2)) {
+        (
+            Some(ImmediateValue::Integer(w)),
+            Some(ImmediateValue::Integer(h)),
+            Some(ImmediateValue::String(title)),
+        ) => {
+            let w: u32 = (*w).try_into().unwrap();
+            let h: u32 = (*h).try_into().unwrap();
+
+            subsystem
+                .open_window(w, h, title)
+                .map(|_| ImmediateValue::Void)
+                .map_err(EvaluationError::NativeSpecific)
+        }
+        _ => panic!("typechecker failed?"),
+    }
+}
+
+mod sdl_subsystem {
+
+    extern crate sdl2;
+
+    use super::GameEngineSubsystem;
+    use sdl2::{render::Canvas, video::Window, EventPump, Sdl, VideoSubsystem};
+
+    pub struct SdlSubsystem {
+        sdl_context: Sdl,
+        video_subsystem: VideoSubsystem,
+        canvas: Option<Canvas<Window>>,
+        event_pump: Option<EventPump>,
+    }
+
+    impl GameEngineSubsystem for SdlSubsystem {
+        fn open_window(&mut self, width: u32, height: u32, title: &str) -> Result<(), String> {
+            let window = self
+                .video_subsystem
+                .window(title, width, height)
+                .position_centered()
+                .opengl()
+                .build()
+                .map_err(|e| e.to_string())?;
+            let canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+            self.canvas = Some(canvas);
+
+            Ok(())
+        }
+    }
+
+    impl SdlSubsystem {
+        pub fn new() -> SdlSubsystem {
+            let sdl_context = sdl2::init().unwrap();
+            let video_subsystem = sdl_context.video().unwrap();
+            SdlSubsystem {
+                sdl_context,
+                video_subsystem,
+                canvas: None,
+                event_pump: None,
+            }
+        }
     }
 }

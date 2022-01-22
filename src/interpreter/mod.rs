@@ -48,6 +48,8 @@ pub fn run(program: Program, args: &[&str]) -> Result<ImmediateValue, Evaluation
         column: 0,
         offset_in_source: 0,
     };
+
+    let mut subsystem = native::get_default_system_game_engine_subsystem();
     Expression::FunctionCall(
         FAKE_SOURCE_INFO,
         None,
@@ -61,5 +63,5 @@ pub fn run(program: Program, args: &[&str]) -> Result<ImmediateValue, Evaluation
             )),
         ))],
     )
-    .eval(&env)
+    .eval(&mut subsystem, &env)
 }
