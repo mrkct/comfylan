@@ -7,7 +7,7 @@ use super::evaluator::EvaluationError;
 use rand::prelude::*;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 8] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 9] = [
         (
             "print",
             NativeFunction {
@@ -89,7 +89,15 @@ lazy_static! {
                 signature: Type::Closure(vec![], Box::new(Type::Void)),
                 callback: native_refresh_screen
             }
-        )
+        ),
+        (
+            "exit",
+            NativeFunction {
+                tag: 8,
+                signature: Type::Closure(vec![], Box::new(Type::Void)),
+                callback: native_exit
+            }
+        ),
     ];
 }
 
@@ -283,6 +291,13 @@ fn native_delay(
         }
         _ => panic!("typechecker failed?"),
     }
+}
+
+fn native_exit(
+    _: &mut dyn GameEngineSubsystem,
+    _: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    std::process::exit(0);
 }
 
 fn native_open_window(
