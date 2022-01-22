@@ -1,4 +1,7 @@
-use super::typechecking::Type;
+use super::{
+    native::{InternalState, NativeFunction},
+    typechecking::Type,
+};
 use crate::interpreter::{ast::*, environment::Env};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -71,14 +74,14 @@ impl Expression {
                         .eval(&function_context_env)
                         .map(|v| v.unwrap_or(ImmediateValue::Void))
                 }
-                Ok(ImmediateValue::NativeFunction(_, native_function)) => {
+                Ok(ImmediateValue::NativeFunction(NativeFunction { callback, .. })) => {
                     let mut evaluated_args = vec![];
                     evaluated_args.reserve_exact(args.len());
                     for e in args {
                         let value = e.eval(env)?;
                         evaluated_args.push(value);
                     }
-                    native_function(evaluated_args)
+                    callback(&mut InternalState {}, evaluated_args)
                 }
                 Ok(value) => panic!(
                     "[{:?}]: Cannot use value of types {:?} as a function",

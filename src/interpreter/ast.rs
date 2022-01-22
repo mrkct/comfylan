@@ -1,4 +1,4 @@
-use crate::interpreter::{environment::Env, typechecking::Type};
+use crate::interpreter::{environment::Env, native::NativeFunction, typechecking::Type};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use super::evaluator::EvaluationError;
@@ -55,10 +55,7 @@ pub enum ImmediateValue {
     Boolean(bool),
     Closure(Type, Rc<Env<ImmediateValue>>, Vec<String>, Block),
     Array(Type, InternalArrayRepresentation),
-    NativeFunction(
-        Type,
-        fn(Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>,
-    ),
+    NativeFunction(NativeFunction),
     Struct(Type, InternalStructRepresentation),
     Void,
 }
@@ -249,8 +246,8 @@ impl ImmediateValue {
             ImmediateValue::String(_) => Type::String,
             ImmediateValue::Boolean(_) => Type::Boolean,
             ImmediateValue::Array(array_type, _) => Type::Array(Box::new(array_type.clone())),
-            ImmediateValue::Closure(functype, _, _, _)
-            | ImmediateValue::NativeFunction(functype, _) => functype.clone(),
+            ImmediateValue::Closure(signature, _, _, _)
+            | ImmediateValue::NativeFunction(NativeFunction { signature, .. }) => signature.clone(),
             ImmediateValue::Void => Type::Void,
             ImmediateValue::Struct(t, _) => t.clone(),
         }

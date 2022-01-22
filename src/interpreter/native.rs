@@ -1,73 +1,115 @@
 use lazy_static::lazy_static;
 
 use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 use super::evaluator::EvaluationError;
 use rand::prelude::*;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(
-        &'static str,
-        Type,
-        fn(Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>
-    ); 6] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 6] = [
         (
             "print",
-            Type::Closure(
-                vec![Type::VarArgs(Box::new(Type::Any))],
-                Box::new(Type::Void)
-            ),
-            native_print
+            NativeFunction {
+                tag: 0,
+                signature: Type::Closure(
+                    vec![Type::VarArgs(Box::new(Type::Any))],
+                    Box::new(Type::Void)
+                ),
+                callback: native_print
+            }
         ),
         (
             "len",
-            Type::Closure(
-                vec![Type::Array(Box::new(Type::Any))],
-                Box::new(Type::Integer)
-            ),
-            native_array_len
+            NativeFunction {
+                tag: 1,
+                signature: Type::Closure(
+                    vec![Type::Array(Box::new(Type::Any))],
+                    Box::new(Type::Integer)
+                ),
+                callback: native_array_len
+            }
         ),
         (
             "insert",
-            Type::Closure(
-                vec![Type::Array(Box::new(Type::Any)), Type::Integer, Type::Any],
-                Box::new(Type::Any)
-            ),
-            native_array_insert
+            NativeFunction {
+                tag: 2,
+                signature: Type::Closure(
+                    vec![Type::Array(Box::new(Type::Any)), Type::Integer, Type::Any],
+                    Box::new(Type::Any)
+                ),
+                callback: native_array_insert
+            }
         ),
         (
             "remove",
-            Type::Closure(
-                vec![Type::Array(Box::new(Type::Any)), Type::Integer],
-                Box::new(Type::Void)
-            ),
-            native_array_remove
+            NativeFunction {
+                tag: 3,
+                signature: Type::Closure(
+                    vec![Type::Array(Box::new(Type::Any)), Type::Integer],
+                    Box::new(Type::Void)
+                ),
+                callback: native_array_remove
+            }
         ),
         (
             "random",
-            Type::Closure(vec![Type::Integer, Type::Integer], Box::new(Type::Integer)),
-            native_random
+            NativeFunction {
+                tag: 4,
+                signature: Type::Closure(
+                    vec![Type::Integer, Type::Integer],
+                    Box::new(Type::Integer)
+                ),
+                callback: native_random
+            }
         ),
         (
             "delay",
-            Type::Closure(vec![Type::Integer], Box::new(Type::Void)),
-            native_delay
+            NativeFunction {
+                tag: 5,
+                signature: Type::Closure(vec![Type::Integer], Box::new(Type::Void)),
+                callback: native_delay
+            }
         )
     ];
 }
 
+#[derive(Clone)]
+pub struct NativeFunction {
+    tag: i32,
+    pub signature: Type,
+    pub callback:
+        fn(&mut InternalState, Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>,
+}
+
+impl fmt::Debug for NativeFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NativeFunction")
+            .field("tag", &self.tag)
+            .field("signature", &self.signature)
+            .finish()
+    }
+}
+
+impl PartialEq for NativeFunction {
+    fn eq(&self, other: &Self) -> bool {
+        self.tag == other.tag
+    }
+}
+
+pub struct InternalState {}
+
 pub fn fill_values_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
-    for (name, signature, native_func) in NATIVE_FUNCTIONS.iter() {
+    for (name, native_function) in NATIVE_FUNCTIONS.iter() {
         env.declare(
             name,
-            ImmediateValue::NativeFunction(signature.clone(), *native_func),
+            ImmediateValue::NativeFunction(native_function.clone()),
         );
     }
 }
 
 pub fn fill_type_env_with_native_functions(env: &Rc<Env<Type>>) {
-    for (name, signature, _) in NATIVE_FUNCTIONS.iter() {
+    for (name, NativeFunction { signature, .. }) in NATIVE_FUNCTIONS.iter() {
         env.declare(name, signature.clone());
     }
 }
@@ -92,7 +134,7 @@ fn print_immediate_value(v: &ImmediateValue) {
             print!("]");
         }
         ImmediateValue::Closure(ftype, _, _, _) => print!("[@Closure {:?}]", ftype),
-        ImmediateValue::NativeFunction(ftype, _) => print!("[@NativeFunction {:?}]", ftype),
+        ImmediateValue::NativeFunction(function) => print!("[@NativeFunction {:?}]", function),
         ImmediateValue::Void => print!("[Void]"),
         ImmediateValue::Struct(_, fields) => {
             print!("{{");
@@ -111,14 +153,20 @@ fn print_immediate_value(v: &ImmediateValue) {
     }
 }
 
-fn native_print(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+fn native_print(
+    _: &mut InternalState,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
     for arg in args {
         print_immediate_value(&arg);
     }
     Ok(ImmediateValue::Void)
 }
 
-fn native_array_len(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+fn native_array_len(
+    _: &mut InternalState,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
     match args.get(0) {
         Some(ImmediateValue::Array(_, array)) => {
             Ok(ImmediateValue::Integer(array.borrow().len() as i64))
@@ -145,7 +193,10 @@ fn validate_array_index(
     Ok(usize_index)
 }
 
-fn native_array_insert(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+fn native_array_insert(
+    _: &mut InternalState,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
     match (args.get(0), args.get(1), args.get(2)) {
         (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(index)), Some(v)) => {
             let i = validate_array_index(array, *index)?;
@@ -156,7 +207,10 @@ fn native_array_insert(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Eval
     Ok(ImmediateValue::Void)
 }
 
-fn native_array_remove(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+fn native_array_remove(
+    _: &mut InternalState,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
     match (args.get(0), args.get(1)) {
         (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(index))) => {
             let i = validate_array_index(array, *index)?;
@@ -166,7 +220,10 @@ fn native_array_remove(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Eval
     }
 }
 
-fn native_random(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+fn native_random(
+    _: &mut InternalState,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
     match (args.get(0), args.get(1)) {
         (Some(ImmediateValue::Integer(x1)), Some(ImmediateValue::Integer(x2))) => {
             let low = *x1.min(x2);
@@ -179,7 +236,10 @@ fn native_random(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Evaluation
     }
 }
 
-fn native_delay(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+fn native_delay(
+    _: &mut InternalState,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
     match args.get(0) {
         Some(ImmediateValue::Integer(ms)) => {
             let ms = *ms;
