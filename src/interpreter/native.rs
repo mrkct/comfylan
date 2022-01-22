@@ -7,7 +7,7 @@ use super::evaluator::EvaluationError;
 use rand::prelude::*;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 7] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 8] = [
         (
             "print",
             NativeFunction {
@@ -81,6 +81,14 @@ lazy_static! {
                 ),
                 callback: native_open_window
             }
+        ),
+        (
+            "refresh_screen",
+            NativeFunction {
+                tag: 7,
+                signature: Type::Closure(vec![], Box::new(Type::Void)),
+                callback: native_refresh_screen
+            }
         )
     ];
 }
@@ -112,6 +120,7 @@ impl PartialEq for NativeFunction {
 
 pub trait GameEngineSubsystem {
     fn open_window(&mut self, w: u32, h: u32, title: &str) -> Result<(), String>;
+    fn refresh_screen(&mut self) -> Result<(), String>;
 }
 
 pub fn fill_values_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
@@ -298,6 +307,16 @@ fn native_open_window(
     }
 }
 
+fn native_refresh_screen(
+    subsystem: &mut dyn GameEngineSubsystem,
+    _: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    subsystem
+        .refresh_screen()
+        .map(|_| ImmediateValue::Void)
+        .map_err(EvaluationError::NativeSpecific)
+}
+
 mod sdl_subsystem {
 
     extern crate sdl2;
@@ -325,6 +344,18 @@ mod sdl_subsystem {
             self.canvas = Some(canvas);
 
             Ok(())
+        }
+
+        fn refresh_screen(&mut self) -> Result<(), String> {
+            match &mut self.canvas {
+                Some(canvas) => {
+                    canvas.present();
+                    Ok(())
+                }
+                None => Err(String::from(
+                    "Cannot refresh screen because the window is not currently open",
+                )),
+            }
         }
     }
 
