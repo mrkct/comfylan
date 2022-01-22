@@ -6,6 +6,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 pub enum EvaluationError {
     DivisionByZero,
     ArrayIndexOutOfBounds(usize, i64),
+    NativeSpecific(String),
     FatalError(String),
 }
 

@@ -11,7 +11,7 @@ lazy_static! {
         &'static str,
         Type,
         fn(Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError>
-    ); 5] = [
+    ); 6] = [
         (
             "print",
             Type::Closure(
@@ -48,6 +48,11 @@ lazy_static! {
             "random",
             Type::Closure(vec![Type::Integer, Type::Integer], Box::new(Type::Integer)),
             native_random
+        ),
+        (
+            "delay",
+            Type::Closure(vec![Type::Integer], Box::new(Type::Void)),
+            native_delay
         )
     ];
 }
@@ -169,6 +174,24 @@ fn native_random(args: Vec<ImmediateValue>) -> Result<ImmediateValue, Evaluation
             Ok(ImmediateValue::Integer(
                 rand::thread_rng().gen_range(low..=high),
             ))
+        }
+        _ => panic!("typechecker failed?"),
+    }
+}
+
+fn native_delay(args: Vec<ImmediateValue>) -> Result<ImmediateValue, EvaluationError> {
+    match args.get(0) {
+        Some(ImmediateValue::Integer(ms)) => {
+            let ms = *ms;
+            if ms < 0 {
+                Err(EvaluationError::NativeSpecific(format!(
+                    "Delay was called with negative value ({})",
+                    ms
+                )))
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(ms.try_into().unwrap()));
+                Ok(ImmediateValue::Void)
+            }
         }
         _ => panic!("typechecker failed?"),
     }
