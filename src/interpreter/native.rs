@@ -1,13 +1,13 @@
 use lazy_static::lazy_static;
 
 use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use super::evaluator::EvaluationError;
 use rand::prelude::*;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 9] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 10] = [
         (
             "print",
             NativeFunction {
@@ -98,6 +98,21 @@ lazy_static! {
                 callback: native_exit
             }
         ),
+        (
+            "draw_rectangle",
+            NativeFunction {
+                tag: 9,
+                signature: Type::Closure(
+                    vec![
+                        Type::TypeReference(String::from("Rect")),
+                        Type::TypeReference(String::from("Rgb")),
+                        Type::Boolean
+                    ],
+                    Box::new(Type::Void)
+                ),
+                callback: native_draw_rectangle
+            }
+        )
     ];
 }
 
@@ -129,6 +144,17 @@ impl PartialEq for NativeFunction {
 pub trait GameEngineSubsystem {
     fn open_window(&mut self, w: u32, h: u32, title: &str) -> Result<(), String>;
     fn refresh_screen(&mut self) -> Result<(), String>;
+    fn draw_rectangle(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        r: u8,
+        g: u8,
+        b: u8,
+        fill: bool,
+    ) -> Result<(), String>;
 }
 
 pub fn fill_values_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
@@ -332,12 +358,103 @@ fn native_refresh_screen(
         .map_err(EvaluationError::NativeSpecific)
 }
 
+fn unwrap_expecting_struct(
+    x: Option<&ImmediateValue>,
+) -> &Rc<RefCell<HashMap<String, ImmediateValue>>> {
+    match x {
+        Some(ImmediateValue::Struct(_, r)) => r,
+        _ => panic!("Expected to unwrap an ImmediateValue::Struct"),
+    }
+}
+
+fn unwrap_expecting_bool(x: Option<&ImmediateValue>) -> bool {
+    match x {
+        Some(ImmediateValue::Boolean(b)) => *b,
+        _ => panic!("Expected to unwrap an ImmediateValue::Boolean"),
+    }
+}
+
+fn unwrap_expecting_integer(x: Option<&ImmediateValue>) -> i64 {
+    match x {
+        Some(ImmediateValue::Integer(i)) => *i,
+        t => panic!(
+            "Expected to unwrap an ImmediateValue::Integer, got {:?} instead",
+            t
+        ),
+    }
+}
+
+fn unwrap_expecting_rect(
+    rect: Option<&ImmediateValue>,
+) -> Result<(i32, i32, u32, u32), EvaluationError> {
+    let rect = unwrap_expecting_struct(rect);
+    let borrow = rect.borrow();
+    let x: i32 = unwrap_expecting_integer(borrow.get("x"))
+        .try_into()
+        .map_err(|_| {
+            EvaluationError::NativeSpecific(String::from("x coordinate is too big for the window"))
+        })?;
+    let y: i32 = unwrap_expecting_integer(borrow.get("y"))
+        .try_into()
+        .map_err(|_| {
+            EvaluationError::NativeSpecific(String::from("y coordinate is too big for the window"))
+        })?;
+    let w: u32 = unwrap_expecting_integer(borrow.get("w"))
+        .try_into()
+        .map_err(|_| {
+            EvaluationError::NativeSpecific(String::from("Width must be a positive value"))
+        })?;
+    let h: u32 = unwrap_expecting_integer(borrow.get("h"))
+        .try_into()
+        .map_err(|_| {
+            EvaluationError::NativeSpecific(String::from("Height must be a positive value"))
+        })?;
+    Ok((x, y, w, h))
+}
+
+fn unwrap_expecting_rgb(rgb: Option<&ImmediateValue>) -> Result<(u8, u8, u8), EvaluationError> {
+    let rgb = unwrap_expecting_struct(rgb);
+    let borrow = rgb.borrow();
+    let r: u8 = unwrap_expecting_integer(borrow.get("r"))
+        .try_into()
+        .map_err(|_| {
+            EvaluationError::NativeSpecific(String::from("rgb values must be between 0 and 255"))
+        })?;
+    let g: u8 = unwrap_expecting_integer(borrow.get("g"))
+        .try_into()
+        .map_err(|_| {
+            EvaluationError::NativeSpecific(String::from("rgb values must be between 0 and 255"))
+        })?;
+    let b: u8 = unwrap_expecting_integer(borrow.get("b"))
+        .try_into()
+        .map_err(|_| {
+            EvaluationError::NativeSpecific(String::from("rgb values must be between 0 and 255"))
+        })?;
+    Ok((r, g, b))
+}
+
+fn native_draw_rectangle(
+    subsystem: &mut dyn GameEngineSubsystem,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    let (x, y, w, h) = unwrap_expecting_rect(args.get(0))?;
+    let (r, g, b) = unwrap_expecting_rgb(args.get(1))?;
+    let fill = unwrap_expecting_bool(args.get(2));
+
+    subsystem
+        .draw_rectangle(x, y, w, h, r, g, b, fill)
+        .map(|_| ImmediateValue::Void)
+        .map_err(EvaluationError::NativeSpecific)
+}
+
 mod sdl_subsystem {
 
     extern crate sdl2;
 
     use super::GameEngineSubsystem;
-    use sdl2::{render::Canvas, video::Window, EventPump, Sdl, VideoSubsystem};
+    use sdl2::{
+        pixels::Color, rect::Rect, render::Canvas, video::Window, EventPump, Sdl, VideoSubsystem,
+    };
 
     pub struct SdlSubsystem {
         sdl_context: Sdl,
@@ -369,6 +486,35 @@ mod sdl_subsystem {
                 }
                 None => Err(String::from(
                     "Cannot refresh screen because the window is not currently open",
+                )),
+            }
+        }
+
+        fn draw_rectangle(
+            &mut self,
+            x: i32,
+            y: i32,
+            w: u32,
+            h: u32,
+            r: u8,
+            g: u8,
+            b: u8,
+            fill: bool,
+        ) -> Result<(), String> {
+            match &mut self.canvas {
+                Some(canvas) => {
+                    canvas.set_draw_color(Color::RGB(r, g, b));
+                    let rect = Rect::new(x, y, w, h);
+                    if fill {
+                        canvas.fill_rect(rect).unwrap();
+                    } else {
+                        canvas.draw_rect(rect).unwrap();
+                    }
+
+                    Ok(())
+                }
+                None => Err(String::from(
+                    "Cannot draw rectangle because the window is not currently open",
                 )),
             }
         }
