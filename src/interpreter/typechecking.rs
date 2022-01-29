@@ -748,6 +748,7 @@ impl Typecheckable for FunctionDeclaration {
 pub fn typecheck_program(program: &Program) -> Result<(), Vec<TypeError>> {
     let mut user_types: HashMap<String, Type> = HashMap::new();
     let mut type_env = Env::empty();
+    native::declare_native_types(&mut user_types);
     native::fill_type_env_with_native_functions(&type_env);
     for (name, type_decl) in &program.type_declarations {
         user_types.insert(name.to_string(), type_decl.into());

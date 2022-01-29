@@ -10,7 +10,29 @@ use rand::prelude::*;
 use mockall::automock;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 10] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 12] = [
+        (
+            "rect",
+            NativeFunction {
+                tag: 0,
+                signature: Type::Closure(
+                    vec![Type::Integer, Type::Integer, Type::Integer, Type::Integer],
+                    Box::new(Type::TypeReference("Rect".to_string()))
+                ),
+                callback: native_rect
+            }
+        ),
+        (
+            "rgb",
+            NativeFunction {
+                tag: 0,
+                signature: Type::Closure(
+                    vec![Type::Integer, Type::Integer, Type::Integer],
+                    Box::new(Type::TypeReference("Rgb".to_string()))
+                ),
+                callback: native_rgb
+            }
+        ),
         (
             "print",
             NativeFunction {
@@ -117,6 +139,31 @@ lazy_static! {
             }
         )
     ];
+    static ref NATIVE_TYPES: [(&'static str, Type); 2] = [
+        (
+            "Rgb",
+            Type::Struct(
+                "Rgb".to_string(),
+                HashMap::from([
+                    ("r".to_string(), Type::Integer),
+                    ("g".to_string(), Type::Integer),
+                    ("b".to_string(), Type::Integer),
+                ])
+            )
+        ),
+        (
+            "Rect",
+            Type::Struct(
+                "Rect".to_string(),
+                HashMap::from([
+                    ("x".to_string(), Type::Integer),
+                    ("y".to_string(), Type::Integer),
+                    ("w".to_string(), Type::Integer),
+                    ("h".to_string(), Type::Integer),
+                ])
+            )
+        )
+    ];
 }
 
 #[derive(Clone)]
@@ -176,6 +223,12 @@ pub fn fill_type_env_with_native_functions(env: &Rc<Env<Type>>) {
     }
 }
 
+pub fn declare_native_types(user_types: &mut HashMap<String, Type>) {
+    for (name, t) in NATIVE_TYPES.iter() {
+        user_types.insert(name.to_string(), t.clone());
+    }
+}
+
 pub fn get_default_system_game_engine_subsystem() -> impl GameEngineSubsystem {
     sdl_subsystem::SdlSubsystem::new()
 }
@@ -217,6 +270,44 @@ fn print_immediate_value(v: &ImmediateValue) {
             print!("}}");
         }
     }
+}
+
+fn native_rect(
+    _: &mut dyn GameEngineSubsystem,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    let x = unwrap_expecting_integer(args.get(0));
+    let y = unwrap_expecting_integer(args.get(1));
+    let w = unwrap_expecting_integer(args.get(2));
+    let h = unwrap_expecting_integer(args.get(3));
+
+    Ok(ImmediateValue::Struct(
+        Type::TypeReference("Rect".to_string()),
+        Rc::new(RefCell::new(HashMap::from([
+            ("x".to_string(), ImmediateValue::Integer(x)),
+            ("y".to_string(), ImmediateValue::Integer(y)),
+            ("w".to_string(), ImmediateValue::Integer(w)),
+            ("h".to_string(), ImmediateValue::Integer(h)),
+        ]))),
+    ))
+}
+
+fn native_rgb(
+    _: &mut dyn GameEngineSubsystem,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    let r = unwrap_expecting_integer(args.get(0));
+    let g = unwrap_expecting_integer(args.get(1));
+    let b = unwrap_expecting_integer(args.get(2));
+
+    Ok(ImmediateValue::Struct(
+        Type::TypeReference("Rgb".to_string()),
+        Rc::new(RefCell::new(HashMap::from([
+            ("r".to_string(), ImmediateValue::Integer(r)),
+            ("g".to_string(), ImmediateValue::Integer(g)),
+            ("b".to_string(), ImmediateValue::Integer(b)),
+        ]))),
+    ))
 }
 
 fn native_print(
