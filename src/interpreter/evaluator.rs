@@ -433,9 +433,9 @@ impl Evaluable for Statement {
 
 #[cfg(test)]
 mod tests {
+    use crate::interpreter::native::MockGameEngineSubsystem;
+
     use super::*;
-    use lazy_static::lazy_static;
-    use mockall::mock;
     use std::{collections::HashMap, matches};
 
     const INFO: SourceInfo = SourceInfo {
@@ -475,23 +475,12 @@ mod tests {
         }))
     }
 
-    mock! {
-        Subsystem {}
-        impl GameEngineSubsystem for Subsystem {
-            fn open_window(&mut self, w: u32, h: u32, title: &str) -> Result<(), String>;
-        }
-    }
-
-    lazy_static! {
-        static ref MOCK_SUBSYSTEM: MockSubsystem = MockSubsystem::new();
-    }
-
     #[test]
     fn simple_addition() {
         let e = binop(intval(1), BinaryOperator::Add, intval(2));
         let env = Env::empty();
         assert_eq!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(ImmediateValue::Integer(3))
         );
     }
@@ -502,7 +491,7 @@ mod tests {
         let env = Env::empty();
         let _ = env.declare("x", ImmediateValue::Integer(2));
         assert_eq!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(ImmediateValue::Integer(3))
         );
     }
@@ -512,7 +501,7 @@ mod tests {
         let e = Expression::BinaryOperation(INFO, None, intval(1), BinaryOperator::Div, intval(0));
         let env = Env::empty();
         assert!(matches!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Err(EvaluationError::DivisionByZero)
         ));
     }
@@ -526,7 +515,7 @@ mod tests {
         );
         let env = Env::empty();
         assert_eq!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(ImmediateValue::Integer(14))
         );
     }
@@ -540,7 +529,7 @@ mod tests {
         );
         let env = Env::empty();
         assert_eq!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(ImmediateValue::FloatingPoint(3.0))
         );
     }
@@ -554,7 +543,7 @@ mod tests {
         );
         let env = Env::empty();
         assert_eq!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(ImmediateValue::FloatingPoint(3.0))
         );
     }
@@ -614,7 +603,7 @@ mod tests {
         );
         let env = Env::empty();
         assert_eq!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(ImmediateValue::Boolean(true))
         );
     }
@@ -635,7 +624,7 @@ mod tests {
         );
         let env = Env::empty();
         assert_eq!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(ImmediateValue::Integer(9))
         );
     }
@@ -656,7 +645,7 @@ mod tests {
         );
         let env = Env::empty();
         assert!(matches!(
-            e.eval(&mut MockSubsystem::new(), &env),
+            e.eval(&mut MockGameEngineSubsystem::new(), &env),
             Err(EvaluationError::ArrayIndexOutOfBounds(3, 3))
         ));
     }
@@ -698,7 +687,10 @@ mod tests {
             })],
         };
 
-        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
+        assert_eq!(
+            program.eval(&mut MockGameEngineSubsystem::new(), &env),
+            Ok(None)
+        );
         assert_eq!(
             env.cloning_lookup("array"),
             Some(ImmediateValue::Array(
@@ -752,7 +744,7 @@ mod tests {
         });
         let env = Env::empty();
         assert_eq!(
-            program.eval(&mut MockSubsystem::new(), &env),
+            program.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(Some(ImmediateValue::Integer(45)))
         );
     }
@@ -779,7 +771,10 @@ mod tests {
             rvalue: Expression::FunctionCall(INFO, None, ident("add_one"), vec![*intval(2)]),
         });
 
-        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
+        assert_eq!(
+            program.eval(&mut MockGameEngineSubsystem::new(), &env),
+            Ok(None)
+        );
         assert_eq!(
             env.cloning_lookup("result"),
             Some(ImmediateValue::Integer(3))
@@ -831,7 +826,10 @@ mod tests {
             rvalue: Expression::FunctionCall(INFO, None, ident("factorial"), vec![*intval(7)]),
         };
 
-        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
+        assert_eq!(
+            program.eval(&mut MockGameEngineSubsystem::new(), &env),
+            Ok(None)
+        );
         assert_eq!(
             env.cloning_lookup("result"),
             Some(ImmediateValue::Integer(5040))
@@ -855,7 +853,9 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
+        assert!(program
+            .eval(&mut MockGameEngineSubsystem::new(), &env)
+            .is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(2)));
 
         // var x = 3; x *= 3;
@@ -871,7 +871,9 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
+        assert!(program
+            .eval(&mut MockGameEngineSubsystem::new(), &env)
+            .is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(9)));
 
         // var x = 3; x -= 3;
@@ -887,7 +889,9 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
+        assert!(program
+            .eval(&mut MockGameEngineSubsystem::new(), &env)
+            .is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(0)));
 
         // var x = 3; x /= 3
@@ -903,7 +907,9 @@ mod tests {
                 }),
             ],
         };
-        assert!(program.eval(&mut MockSubsystem::new(), &env).is_ok());
+        assert!(program
+            .eval(&mut MockGameEngineSubsystem::new(), &env)
+            .is_ok());
         assert_eq!(env.cloning_lookup("x"), Some(ImmediateValue::Integer(1)));
     }
 
@@ -932,7 +938,7 @@ mod tests {
         );
 
         assert_eq!(
-            program.eval(&mut MockSubsystem::new(), &env),
+            program.eval(&mut MockGameEngineSubsystem::new(), &env),
             Ok(Some(ImmediateValue::Integer(1)))
         );
     }
@@ -964,7 +970,10 @@ mod tests {
             ),
         );
 
-        assert_eq!(program.eval(&mut MockSubsystem::new(), &env), Ok(None));
+        assert_eq!(
+            program.eval(&mut MockGameEngineSubsystem::new(), &env),
+            Ok(None)
+        );
         assert_eq!(
             env.cloning_lookup("point"),
             Some(ImmediateValue::Struct(

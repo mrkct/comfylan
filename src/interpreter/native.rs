@@ -6,6 +6,9 @@ use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 use super::evaluator::EvaluationError;
 use rand::prelude::*;
 
+#[cfg(test)]
+use mockall::automock;
+
 lazy_static! {
     static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 10] = [
         (
@@ -141,6 +144,7 @@ impl PartialEq for NativeFunction {
     }
 }
 
+#[cfg_attr(test, automock)]
 pub trait GameEngineSubsystem {
     fn open_window(&mut self, w: u32, h: u32, title: &str) -> Result<(), String>;
     fn refresh_screen(&mut self) -> Result<(), String>;
