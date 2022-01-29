@@ -452,42 +452,28 @@ mod sdl_subsystem {
     extern crate sdl2;
 
     use super::GameEngineSubsystem;
-    use sdl2::{
-        pixels::Color, rect::Rect, render::Canvas, video::Window, EventPump, Sdl, VideoSubsystem,
-    };
+    use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
+    use std::{sync::mpsc, thread};
 
     pub struct SdlSubsystem {
-        sdl_context: Sdl,
-        video_subsystem: VideoSubsystem,
-        canvas: Option<Canvas<Window>>,
-        event_pump: Option<EventPump>,
+        tx: mpsc::Sender<Action>,
+        rx: mpsc::Receiver<Result<(), String>>,
+    }
+
+    #[derive(Debug)]
+    enum Action {
+        OpenWindow(u32, u32, String),
+        Refresh,
+        DrawRectangle((i32, i32, u32, u32), (u8, u8, u8), bool),
     }
 
     impl GameEngineSubsystem for SdlSubsystem {
         fn open_window(&mut self, width: u32, height: u32, title: &str) -> Result<(), String> {
-            let window = self
-                .video_subsystem
-                .window(title, width, height)
-                .position_centered()
-                .opengl()
-                .build()
-                .map_err(|e| e.to_string())?;
-            let canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
-            self.canvas = Some(canvas);
-
-            Ok(())
+            self.send_and_wait(Action::OpenWindow(width, height, String::from(title)))
         }
 
         fn refresh_screen(&mut self) -> Result<(), String> {
-            match &mut self.canvas {
-                Some(canvas) => {
-                    canvas.present();
-                    Ok(())
-                }
-                None => Err(String::from(
-                    "Cannot refresh screen because the window is not currently open",
-                )),
-            }
+            self.send_and_wait(Action::Refresh)
         }
 
         fn draw_rectangle(
@@ -501,34 +487,97 @@ mod sdl_subsystem {
             b: u8,
             fill: bool,
         ) -> Result<(), String> {
-            match &mut self.canvas {
-                Some(canvas) => {
-                    canvas.set_draw_color(Color::RGB(r, g, b));
-                    let rect = Rect::new(x, y, w, h);
-                    if fill {
-                        canvas.fill_rect(rect).unwrap();
-                    } else {
-                        canvas.draw_rect(rect).unwrap();
-                    }
-
-                    Ok(())
-                }
-                None => Err(String::from(
-                    "Cannot draw rectangle because the window is not currently open",
-                )),
-            }
+            self.send_and_wait(Action::DrawRectangle((x, y, w, h), (r, g, b), fill))
         }
     }
 
     impl SdlSubsystem {
+        fn send_and_wait(&mut self, action: Action) -> Result<(), String> {
+            self.tx.send(action).unwrap();
+            self.rx.recv().unwrap()
+        }
+
         pub fn new() -> SdlSubsystem {
-            let sdl_context = sdl2::init().unwrap();
-            let video_subsystem = sdl_context.video().unwrap();
+            let (interpreter_tx, sdl_rx) = mpsc::channel();
+            let (sdl_tx, interpreter_rx) = mpsc::channel();
+
+            thread::spawn(move || {
+                let sdl_context = sdl2::init().unwrap();
+                let video_subsystem = sdl_context.video().unwrap();
+                let mut event_pump = sdl_context.event_pump().unwrap();
+                let mut canvas = None;
+
+                let (tx, rx) = (sdl_tx, sdl_rx);
+                loop {
+                    for msg in rx.try_iter() {
+                        let result = {
+                            match msg {
+                                Action::OpenWindow(width, height, title) if canvas.is_none() => {
+                                    video_subsystem
+                                        .window(&title, width, height)
+                                        .position_centered()
+                                        .opengl()
+                                        .build()
+                                        .map_err(|e| e.to_string())
+                                        .and_then(|window| {
+                                            window
+                                                .into_canvas()
+                                                .build()
+                                                .map_err(|e| e.to_string())
+                                                .map(|c| {
+                                                    canvas = Some(c);
+                                                    ()
+                                                })
+                                        })
+                                }
+                                Action::OpenWindow(..) => {
+                                    Err(String::from("You already have opened a window!"))
+                                }
+                                Action::Refresh => canvas
+                                    .as_mut()
+                                    .ok_or_else(|| {
+                                        String::from("You can't refresh a non-existing window|")
+                                    })
+                                    .map(|canvas| {
+                                        canvas.present();
+                                        ()
+                                    }),
+                                Action::DrawRectangle((x, y, w, h), (r, g, b), fill) => canvas
+                                    .as_mut()
+                                    .ok_or_else(|| {
+                                        String::from("You can't draw before opening a window!")
+                                    })
+                                    .map(|canvas| {
+                                        canvas.set_draw_color(Color::RGB(r, g, b));
+                                        let rect = Rect::new(x, y, w, h);
+                                        if fill {
+                                            canvas.fill_rect(rect).unwrap();
+                                        } else {
+                                            canvas.draw_rect(rect).unwrap();
+                                        }
+                                        ()
+                                    }),
+                            }
+                        };
+                        tx.send(result).unwrap();
+                    }
+
+                    for event in event_pump.poll_iter() {
+                        match event {
+                            Event::Quit { .. }
+                            | Event::KeyDown {
+                                keycode: Some(Keycode::Escape),
+                                ..
+                            } => std::process::exit(0),
+                            _ => { /* TODO: Handle... */ }
+                        }
+                    }
+                }
+            });
+
             SdlSubsystem {
-                sdl_context,
-                video_subsystem,
-                canvas: None,
-                event_pump: None,
+                tx: interpreter_tx,
+                rx: interpreter_rx,
             }
         }
     }

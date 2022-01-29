@@ -578,9 +578,7 @@ impl<'a> Parser<'a> {
 
     fn try_consume_identifier(&mut self) -> Option<(&Token, String)> {
         if let Some(
-            token
-            @
-            Token {
+            token @ Token {
                 kind: TokenKind::Identifier(name),
                 ..
             },
