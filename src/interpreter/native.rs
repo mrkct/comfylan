@@ -10,7 +10,7 @@ use rand::prelude::*;
 use mockall::automock;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 12] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 15] = [
         (
             "rect",
             NativeFunction {
@@ -137,7 +137,31 @@ lazy_static! {
                 ),
                 callback: native_draw_rectangle
             }
-        )
+        ),
+        (
+            "mouse_x",
+            NativeFunction {
+                tag: 10,
+                signature: Type::Closure(vec![], Box::new(Type::Integer)),
+                callback: native_mouse_x
+            }
+        ),
+        (
+            "mouse_y",
+            NativeFunction {
+                tag: 11,
+                signature: Type::Closure(vec![], Box::new(Type::Integer)),
+                callback: native_mouse_y
+            }
+        ),
+        (
+            "mouse_btn_down",
+            NativeFunction {
+                tag: 12,
+                signature: Type::Closure(vec![Type::Integer], Box::new(Type::Boolean)),
+                callback: native_mouse_btn_down
+            }
+        ),
     ];
     static ref NATIVE_TYPES: [(&'static str, Type); 2] = [
         (
@@ -206,6 +230,17 @@ pub trait GameEngineSubsystem {
         b: u8,
         fill: bool,
     ) -> Result<(), String>;
+
+    fn mouse_state(&mut self) -> Result<MouseState, String>;
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct MouseState {
+    pub x: i64,
+    pub y: i64,
+    pub left_button_down: bool,
+    pub middle_button_down: bool,
+    pub right_button_down: bool,
 }
 
 pub fn fill_values_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
@@ -542,17 +577,68 @@ fn native_draw_rectangle(
         .map_err(EvaluationError::NativeSpecific)
 }
 
+fn native_mouse_x(
+    subsystem: &mut dyn GameEngineSubsystem,
+    _: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    subsystem
+        .mouse_state()
+        .map(|state| ImmediateValue::Integer(state.x))
+        .map_err(EvaluationError::NativeSpecific)
+}
+
+fn native_mouse_y(
+    subsystem: &mut dyn GameEngineSubsystem,
+    _: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    subsystem
+        .mouse_state()
+        .map(|state| ImmediateValue::Integer(state.y))
+        .map_err(EvaluationError::NativeSpecific)
+}
+
+fn get_mouse_button_status(
+    subsystem: &mut dyn GameEngineSubsystem,
+    mouse_button_number: i64,
+) -> Result<bool, EvaluationError> {
+    subsystem
+        .mouse_state()
+        .map_err(EvaluationError::NativeSpecific)
+        .and_then(|state| {
+            match mouse_button_number {
+                0 => Ok(state.left_button_down),
+                1 => Ok(state.middle_button_down),
+                2 => Ok(state.right_button_down),
+                _ => Err(EvaluationError::NativeSpecific(String::from("Not a valid mouse button number. Use the BTN_LEFT, BTN_MIDDLE or BTN_RIGHT constants!")))
+            }
+        })
+}
+
+fn native_mouse_btn_down(
+    subsystem: &mut dyn GameEngineSubsystem,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    let btn = unwrap_expecting_integer(args.get(0));
+
+    get_mouse_button_status(subsystem, btn).map(ImmediateValue::Boolean)
+}
+
 mod sdl_subsystem {
 
     extern crate sdl2;
 
-    use super::GameEngineSubsystem;
+    use super::*;
     use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
-    use std::{sync::mpsc, thread};
+    use std::{
+        collections::HashMap,
+        sync::{mpsc, Arc, RwLock},
+        thread,
+    };
 
     pub struct SdlSubsystem {
         tx: mpsc::Sender<Action>,
         rx: mpsc::Receiver<Result<(), String>>,
+        input: Arc<InputStatus>,
     }
 
     #[derive(Debug)]
@@ -560,6 +646,11 @@ mod sdl_subsystem {
         OpenWindow(u32, u32, String),
         Refresh,
         DrawRectangle((i32, i32, u32, u32), (u8, u8, u8), bool),
+    }
+
+    struct InputStatus {
+        pub keycodes: RwLock<HashMap<Keycode, bool>>,
+        pub mouse: RwLock<MouseState>,
     }
 
     impl GameEngineSubsystem for SdlSubsystem {
@@ -584,6 +675,10 @@ mod sdl_subsystem {
         ) -> Result<(), String> {
             self.send_and_wait(Action::DrawRectangle((x, y, w, h), (r, g, b), fill))
         }
+
+        fn mouse_state(&mut self) -> Result<MouseState, String> {
+            Ok(self.input.mouse.read().unwrap().clone())
+        }
     }
 
     impl SdlSubsystem {
@@ -596,6 +691,18 @@ mod sdl_subsystem {
             let (interpreter_tx, sdl_rx) = mpsc::channel();
             let (sdl_tx, interpreter_rx) = mpsc::channel();
 
+            let input = Arc::new(InputStatus {
+                keycodes: RwLock::new(HashMap::new()),
+                mouse: RwLock::new(MouseState {
+                    x: 0,
+                    y: 0,
+                    left_button_down: false,
+                    middle_button_down: false,
+                    right_button_down: false,
+                }),
+            });
+
+            let thread_input = Arc::clone(&input);
             thread::spawn(move || {
                 let sdl_context = sdl2::init().unwrap();
                 let video_subsystem = sdl_context.video().unwrap();
@@ -603,6 +710,7 @@ mod sdl_subsystem {
                 let mut canvas = None;
 
                 let (tx, rx) = (sdl_tx, sdl_rx);
+                let input = thread_input;
                 loop {
                     for msg in rx.try_iter() {
                         let result = {
@@ -667,12 +775,22 @@ mod sdl_subsystem {
                             _ => { /* TODO: Handle... */ }
                         }
                     }
+                    {
+                        let mouse_state = event_pump.mouse_state();
+                        let mut mouse_lock = input.mouse.write().unwrap();
+                        mouse_lock.x = mouse_state.x() as i64;
+                        mouse_lock.y = mouse_state.y() as i64;
+                        mouse_lock.left_button_down = mouse_state.left();
+                        mouse_lock.middle_button_down = mouse_state.middle();
+                        mouse_lock.right_button_down = mouse_state.right();
+                    }
                 }
             });
 
             SdlSubsystem {
                 tx: interpreter_tx,
                 rx: interpreter_rx,
+                input,
             }
         }
     }
