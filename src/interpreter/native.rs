@@ -10,7 +10,7 @@ use rand::prelude::*;
 use mockall::automock;
 
 lazy_static! {
-    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 15] = [
+    static ref NATIVE_FUNCTIONS: [(&'static str, NativeFunction); 16] = [
         (
             "rect",
             NativeFunction {
@@ -139,9 +139,26 @@ lazy_static! {
             }
         ),
         (
-            "mouse_x",
+            "draw_line",
             NativeFunction {
                 tag: 10,
+                signature: Type::Closure(
+                    vec![
+                        Type::Integer,
+                        Type::Integer,
+                        Type::Integer,
+                        Type::Integer,
+                        Type::TypeReference(String::from("Rgb")),
+                    ],
+                    Box::new(Type::Void)
+                ),
+                callback: native_draw_line
+            }
+        ),
+        (
+            "mouse_x",
+            NativeFunction {
+                tag: 11,
                 signature: Type::Closure(vec![], Box::new(Type::Integer)),
                 callback: native_mouse_x
             }
@@ -149,7 +166,7 @@ lazy_static! {
         (
             "mouse_y",
             NativeFunction {
-                tag: 11,
+                tag: 12,
                 signature: Type::Closure(vec![], Box::new(Type::Integer)),
                 callback: native_mouse_y
             }
@@ -157,7 +174,7 @@ lazy_static! {
         (
             "mouse_btn_down",
             NativeFunction {
-                tag: 12,
+                tag: 13,
                 signature: Type::Closure(vec![Type::Integer], Box::new(Type::Boolean)),
                 callback: native_mouse_btn_down
             }
@@ -186,7 +203,7 @@ lazy_static! {
                     ("h".to_string(), Type::Integer),
                 ])
             )
-        )
+        ),
     ];
 }
 
@@ -229,6 +246,16 @@ pub trait GameEngineSubsystem {
         g: u8,
         b: u8,
         fill: bool,
+    ) -> Result<(), String>;
+    fn draw_line(
+        &mut self,
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        r: u8,
+        g: u8,
+        b: u8,
     ) -> Result<(), String>;
 
     fn mouse_state(&mut self) -> Result<MouseState, String>;
@@ -623,6 +650,22 @@ fn native_mouse_btn_down(
     get_mouse_button_status(subsystem, btn).map(ImmediateValue::Boolean)
 }
 
+fn native_draw_line(
+    subsystem: &mut dyn GameEngineSubsystem,
+    args: Vec<ImmediateValue>,
+) -> Result<ImmediateValue, EvaluationError> {
+    let x1 = unwrap_expecting_integer(args.get(0)) as i32;
+    let y1 = unwrap_expecting_integer(args.get(1)) as i32;
+    let x2 = unwrap_expecting_integer(args.get(2)) as i32;
+    let y2 = unwrap_expecting_integer(args.get(3)) as i32;
+    let (r, g, b) = unwrap_expecting_rgb(args.get(4))?;
+
+    subsystem
+        .draw_line(x1, y1, x2, y2, r, g, b)
+        .map(|_| ImmediateValue::Void)
+        .map_err(EvaluationError::NativeSpecific)
+}
+
 mod sdl_subsystem {
 
     extern crate sdl2;
@@ -646,6 +689,7 @@ mod sdl_subsystem {
         OpenWindow(u32, u32, String),
         Refresh,
         DrawRectangle((i32, i32, u32, u32), (u8, u8, u8), bool),
+        DrawLine((i32, i32), (i32, i32), (u8, u8, u8)),
     }
 
     struct InputStatus {
@@ -674,6 +718,19 @@ mod sdl_subsystem {
             fill: bool,
         ) -> Result<(), String> {
             self.send_and_wait(Action::DrawRectangle((x, y, w, h), (r, g, b), fill))
+        }
+
+        fn draw_line(
+            &mut self,
+            x1: i32,
+            y1: i32,
+            x2: i32,
+            y2: i32,
+            r: u8,
+            g: u8,
+            b: u8,
+        ) -> Result<(), String> {
+            self.send_and_wait(Action::DrawLine((x1, y1), (x2, y2), (r, g, b)))
         }
 
         fn mouse_state(&mut self) -> Result<MouseState, String> {
@@ -729,7 +786,6 @@ mod sdl_subsystem {
                                                 .map_err(|e| e.to_string())
                                                 .map(|c| {
                                                     canvas = Some(c);
-                                                    ()
                                                 })
                                         })
                                 }
@@ -743,7 +799,6 @@ mod sdl_subsystem {
                                     })
                                     .map(|canvas| {
                                         canvas.present();
-                                        ()
                                     }),
                                 Action::DrawRectangle((x, y, w, h), (r, g, b), fill) => canvas
                                     .as_mut()
@@ -758,7 +813,15 @@ mod sdl_subsystem {
                                         } else {
                                             canvas.draw_rect(rect).unwrap();
                                         }
-                                        ()
+                                    }),
+                                Action::DrawLine(start, end, (r, g, b)) => canvas
+                                    .as_mut()
+                                    .ok_or_else(|| {
+                                        String::from("You can't draw before opening a window!")
+                                    })
+                                    .map(|canvas| {
+                                        canvas.set_draw_color(Color::RGB(r, g, b));
+                                        canvas.draw_line(start, end).unwrap();
                                     }),
                             }
                         };
