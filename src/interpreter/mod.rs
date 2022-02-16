@@ -36,6 +36,7 @@ pub fn parse<'a>(tokens: &'a [lexer::Token<'a>]) -> Result<Program, &'static str
 pub fn run(program: Program, args: &[&str]) -> Result<ImmediateValue, EvaluationError> {
     let env = Env::empty();
     native::fill_values_env_with_native_functions(&env);
+    native::fill_global_env_with_builtin_constants(&env);
     for (function_name, function_decl) in program.function_declarations {
         env.declare(
             &function_name,

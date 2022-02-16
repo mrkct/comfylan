@@ -285,6 +285,31 @@ pub fn fill_type_env_with_native_functions(env: &Rc<Env<Type>>) {
     }
 }
 
+pub fn fill_global_env_with_builtin_constants(env: &Rc<Env<ImmediateValue>>) {
+    fn make_rgb(r: u8, g: u8, b: u8) -> ImmediateValue {
+        ImmediateValue::Struct(Type::TypeReference("Rgb".to_string()), Rc::new(RefCell::new(HashMap::from([
+            ("r".to_string(), ImmediateValue::Integer(r as i64)), 
+            ("g".to_string(), ImmediateValue::Integer(g as i64)), 
+            ("b".to_string(), ImmediateValue::Integer(b as i64)), 
+        ]))))
+    }
+
+    let builtin_constants = [
+        ("MB_LEFT", ImmediateValue::Integer(0)), 
+        ("MB_MIDDLE", ImmediateValue::Integer(1)),
+        ("MB_RIGHT", ImmediateValue::Integer(2)),
+        ("RED", make_rgb(255, 0, 0)),
+        ("GREEN", make_rgb(0, 255, 0)),
+        ("BLUE", make_rgb(0, 0, 255)),
+        ("BLACK", make_rgb(0, 0, 0)),
+        ("WHITE", make_rgb(255, 255, 255)),
+    ];
+
+    for (name, value) in builtin_constants.into_iter() {
+        env.declare(name, value);
+    }
+}
+
 pub fn declare_native_types(user_types: &mut HashMap<String, Type>) {
     for (name, t) in NATIVE_TYPES.iter() {
         user_types.insert(name.to_string(), t.clone());
