@@ -1,4 +1,4 @@
-use crate::interpreter::{
+use crate::lang::{
     ast::*,
     lexer::{Token, TokenKind},
     typechecking::Type,
@@ -161,7 +161,7 @@ impl<'a> Parser<'a> {
         macro_rules! try_match_single_token_to_immediate_value {
             ($p:pat) => {
                 if let Some(token) = try_consume!(self.tokens, $p) {
-                    return Some(Box::new(Expression::Value(token.as_immediate_value())));
+                    return Some(Box::new(Expression::Value(token.into())));
                 }
             };
         }
@@ -172,13 +172,7 @@ impl<'a> Parser<'a> {
             try_match_single_token_to_immediate_value!(TokenKind::FloatingPoint(_));
             try_match_single_token_to_immediate_value!(TokenKind::KeywordTrue);
             try_match_single_token_to_immediate_value!(TokenKind::KeywordFalse);
-
-            if let Some(token) = try_consume!(self.tokens, TokenKind::Identifier(_)) {
-                return Some(Box::new(Expression::Identifier(
-                    TODO_INFO,
-                    token.clone_identifiers_string(),
-                )));
-            }
+            try_match_single_token_to_immediate_value!(TokenKind::Identifier(_));
 
             if let Some(node) = rewinding_if_none!(self, {
                 try_consume!(self.tokens, TokenKind::OpenRoundBracket)?;
@@ -671,6 +665,46 @@ impl<'a> Parser<'a> {
     }
 }
 
+impl<'a> From<&Token<'a>> for Value {
+    fn from(token: &Token<'a>) -> Self {
+        let replace_escaped_characters = |s: &str| {
+            let mut escape_next = false;
+            let mut result = String::new();
+            result.reserve(s.len());
+
+            for c in s.chars() {
+                if !escape_next && c == '\\' {
+                    escape_next = true;
+                    continue;
+                }
+
+                if escape_next {
+                    escape_next = false;
+                    result.push(match c {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        c => c,
+                    });
+                } else {
+                    result.push(c);
+                }
+            }
+            result
+        };
+
+        match token.kind {
+            TokenKind::Integer(x) => Value::Integer(x),
+            TokenKind::FloatingPoint(f) => Value::FloatingPoint(f),
+            TokenKind::KeywordTrue => Value::Boolean(true),
+            TokenKind::KeywordFalse => Value::Boolean(false),
+            TokenKind::String(s) => Value::String(replace_escaped_characters(s)),
+            TokenKind::Identifier(s) => Value::Variable(s.to_string()),
+            _ => panic!("Cannot convert token {:?} into a Value", token),
+        }
+    }
+}
+
 impl Token<'_> {
     pub fn as_assignment_operator(&self) -> AssignmentOperator {
         match self.kind {
@@ -700,20 +734,6 @@ impl Token<'_> {
             TokenKind::LessThan => BinaryOperator::LessThan,
             TokenKind::LessThanEqual => BinaryOperator::LessThanEqual,
             _ => panic!("Token {:?} was parsed successfully in a binary expression but there is no corresponding binary operator", self)
-        }
-    }
-
-    pub fn as_immediate_value(&self) -> ImmediateValue {
-        match self.kind {
-            TokenKind::Integer(x) => ImmediateValue::Integer(x),
-            TokenKind::FloatingPoint(f) => ImmediateValue::FloatingPoint(f),
-            TokenKind::KeywordTrue => ImmediateValue::Boolean(true),
-            TokenKind::KeywordFalse => ImmediateValue::Boolean(false),
-            TokenKind::String(s) => {
-                // FIXME: This does not support writing '\\n' (escaping the '\' character)
-                ImmediateValue::String(s.replace(r#"\n"#, "\n").replace(r#"\t"#, "\t"))
-            },
-            _ => panic!("Token {:?} was used successfully in a parse but expected to be converted to an immediate value", self)
         }
     }
 
@@ -747,23 +767,23 @@ mod tests {
     }
 
     fn intval(x: i64) -> Box<Expression> {
-        Box::new(Expression::Value(ImmediateValue::Integer(x)))
+        Box::new(Expression::Value(Value::Integer(x)))
     }
 
     fn floatval(x: f64) -> Box<Expression> {
-        Box::new(Expression::Value(ImmediateValue::FloatingPoint(x)))
+        Box::new(Expression::Value(Value::FloatingPoint(x)))
     }
 
     fn stringval(s: &str) -> Box<Expression> {
-        Box::new(Expression::Value(ImmediateValue::String(s.to_string())))
+        Box::new(Expression::Value(Value::String(s.to_string())))
     }
 
     fn ident(s: &str) -> Box<Expression> {
-        Box::new(Expression::Identifier(I, s.to_string()))
+        Box::new(Expression::Value(Value::Variable(s.to_string())))
     }
 
     fn boolval(b: bool) -> Box<Expression> {
-        Box::new(Expression::Value(ImmediateValue::Boolean(b)))
+        Box::new(Expression::Value(Value::Boolean(b)))
     }
 
     fn unaryop(op: UnaryOperator, e: Box<Expression>) -> Box<Expression> {

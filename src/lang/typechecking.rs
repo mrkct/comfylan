@@ -1,4 +1,4 @@
-use crate::interpreter::{ast::*, environment::*, native};
+use crate::lang::{ast::*, environment::*};
 use std::{borrow::BorrowMut, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -166,10 +166,16 @@ fn eval_type_of_expression(
     expression: &Expression,
 ) -> Result<Type, Vec<TypeError>> {
     match expression {
-        Expression::Identifier(_, symbol) => env
+        Expression::Value(Value::Variable(symbol)) => env
             .cloning_lookup(symbol)
             .ok_or_else(|| vec![TypeError::UndeclaredSymbolInExpression(symbol.clone())]),
-        Expression::Value(v) => Ok(v.get_type()),
+        Expression::Value(v) => Ok(match v {
+            Value::Integer(_) => Type::Integer,
+            Value::FloatingPoint(_) => Type::FloatingPoint,
+            Value::Boolean(_) => Type::Boolean,
+            Value::String(_) => Type::String,
+            Value::Variable(_) => unreachable!(),
+        }),
         Expression::ArrayInitializer(_, Some(expected_type), expressions) => {
             match eval_types_or_collect_errors(user_types, env, expressions) {
                 Err(errors) => Err(errors),
@@ -745,11 +751,15 @@ impl Typecheckable for FunctionDeclaration {
     }
 }
 
-pub fn typecheck_program(program: &Program) -> Result<(), Vec<TypeError>> {
+pub fn typecheck_program(
+    program: &Program,
+    native_callback: fn(&mut HashMap<String, Type>, &Env<Type>),
+) -> Result<(), Vec<TypeError>> {
     let mut user_types: HashMap<String, Type> = HashMap::new();
     let mut type_env = Env::empty();
-    native::declare_native_types(&mut user_types);
-    native::fill_type_env_with_native_functions(&type_env);
+
+    native_callback(&mut user_types, &type_env);
+
     for (name, type_decl) in &program.type_declarations {
         user_types.insert(name.to_string(), type_decl.into());
     }
@@ -786,9 +796,9 @@ mod tests {
         let e = Expression::BinaryOperation(
             INFO,
             None,
-            Box::new(Expression::Value(ImmediateValue::Integer(2))),
+            Box::new(Expression::Value(Value::Integer(2))),
             BinaryOperator::Add,
-            Box::new(Expression::Value(ImmediateValue::FloatingPoint(3.14))),
+            Box::new(Expression::Value(Value::FloatingPoint(3.14))),
         );
         let env = Env::empty();
         assert_eq!(
@@ -805,9 +815,9 @@ mod tests {
         let e = Expression::BinaryOperation(
             INFO,
             None,
-            Box::new(Expression::Value(ImmediateValue::Integer(2))),
+            Box::new(Expression::Value(Value::Integer(2))),
             BinaryOperator::Add,
-            Box::new(Expression::Identifier(INFO, "x".to_string())),
+            Box::new(Expression::Value(Value::Variable("x".to_string()))),
         );
         assert_eq!(
             eval_type_of_expression(&HashMap::new(), &env, &e),
@@ -827,14 +837,14 @@ mod tests {
         let e = Expression::BinaryOperation(
             INFO,
             None,
-            Box::new(Expression::Value(ImmediateValue::Boolean(true))),
+            Box::new(Expression::Value(Value::Boolean(true))),
             BinaryOperator::Or,
             Box::new(Expression::BinaryOperation(
                 INFO,
                 None,
-                Box::new(Expression::Identifier(INFO, "x".to_string())),
+                Box::new(Expression::Value(Value::Variable("x".to_string()))),
                 BinaryOperator::Indexing,
-                Box::new(Expression::Value(ImmediateValue::Integer(1))),
+                Box::new(Expression::Value(Value::Integer(1))),
             )),
         );
         assert_eq!(
@@ -848,9 +858,9 @@ mod tests {
         let e = Expression::BinaryOperation(
             INFO,
             None,
-            Box::new(Expression::Value(ImmediateValue::Integer(1))),
+            Box::new(Expression::Value(Value::Integer(1))),
             BinaryOperator::Add,
-            Box::new(Expression::Identifier(INFO, "x".to_string())),
+            Box::new(Expression::Value(Value::Variable("x".to_string()))),
         );
         assert_eq!(
             eval_type_of_expression(&HashMap::new(), &Env::empty(), &e),
@@ -871,7 +881,7 @@ mod tests {
                 _info: INFO,
                 statements: vec![Statement::Return(Return {
                     _info: INFO,
-                    expression: Expression::Identifier(INFO, "point_struct".to_string()),
+                    expression: Expression::Value(Value::Variable("point_struct".to_string())),
                 })],
             },
         };
@@ -899,7 +909,9 @@ mod tests {
                     _info: INFO,
                     expression: Expression::Accessor(
                         INFO,
-                        Box::new(Expression::Identifier(INFO, "point_struct".to_string())),
+                        Box::new(Expression::Value(Value::Variable(
+                            "point_struct".to_string(),
+                        ))),
                         "x".to_string(),
                     ),
                 })],
@@ -927,13 +939,13 @@ mod tests {
             expression: Expression::FunctionCall(
                 INFO,
                 None,
-                Box::new(Expression::Identifier(INFO, "my_func".to_string())),
+                Box::new(Expression::Value(Value::Variable("my_func".to_string()))),
                 vec![
-                    Expression::Value(ImmediateValue::Integer(0)),
-                    Expression::Value(ImmediateValue::FloatingPoint(0.1)),
-                    Expression::Value(ImmediateValue::FloatingPoint(0.2)),
-                    Expression::Value(ImmediateValue::FloatingPoint(0.3)),
-                    Expression::Value(ImmediateValue::String("4".to_string())),
+                    Expression::Value(Value::Integer(0)),
+                    Expression::Value(Value::FloatingPoint(0.1)),
+                    Expression::Value(Value::FloatingPoint(0.2)),
+                    Expression::Value(Value::FloatingPoint(0.3)),
+                    Expression::Value(Value::String("4".to_string())),
                     // Intentionally empty
                 ],
             ),
@@ -967,30 +979,30 @@ mod tests {
                     expected_type: None,
                     name: "i".to_string(),
                     immutable: false,
-                    rvalue: Expression::Value(ImmediateValue::Integer(0)),
+                    rvalue: Expression::Value(Value::Integer(0)),
                 })],
             },
             condition: Expression::BinaryOperation(
                 INFO,
                 None,
-                Box::new(Expression::Identifier(INFO, "i".to_string())),
+                Box::new(Expression::Value(Value::Variable("i".to_string()))),
                 BinaryOperator::LessThan,
-                Box::new(Expression::Value(ImmediateValue::Integer(10))),
+                Box::new(Expression::Value(Value::Integer(10))),
             ),
             post: Block {
                 _info: INFO,
                 statements: vec![Statement::Assignment(Assignment {
                     _info: INFO,
-                    lvalue: Expression::Identifier(INFO, "i".to_string()),
+                    lvalue: Expression::Value(Value::Variable("i".to_string())),
                     operator: AssignmentOperator::AddEqual,
-                    rvalue: Expression::Value(ImmediateValue::Integer(1)),
+                    rvalue: Expression::Value(Value::Integer(1)),
                 })],
             },
             body: Block {
                 _info: INFO,
                 statements: vec![Statement::StatementExpression(StatementExpression {
                     _info: INFO,
-                    expression: Expression::Identifier(INFO, "i".to_string()),
+                    expression: Expression::Value(Value::Variable("i".to_string())),
                 })],
             },
         });

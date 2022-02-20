@@ -54,15 +54,6 @@ impl<T: Clone> Env<T> {
         }
     }
 
-    pub fn lookup_mut<U>(&self, symbol: &str, f: fn(Option<&mut T>) -> U) -> U {
-        let mut borrowed_map = self.symbols.borrow_mut();
-        match (borrowed_map.get_mut(symbol), self.parent_env.as_ref()) {
-            (Some(value), _) => f(Some(value)),
-            (None, Some(parent)) => parent.lookup_mut(symbol, f),
-            (None, None) => f(None),
-        }
-    }
-
     pub fn cloning_lookup(&self, symbol: &str) -> Option<T> {
         self.lookup(symbol, |value| value.cloned())
     }
@@ -121,13 +112,5 @@ mod tests {
             parent.assign("undeclared", 1),
             Err(EnvError::SymbolNotFound("undeclared".to_string()))
         );
-    }
-
-    #[test]
-    fn assign_through_lookup_as_ref() {
-        let parent = Env::empty();
-        parent.declare("hello", 1);
-        parent.lookup_mut("hello", |v| *v.unwrap() = 77);
-        assert_eq!(parent.cloning_lookup("hello"), Some(77));
     }
 }

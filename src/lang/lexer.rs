@@ -75,7 +75,25 @@ pub struct LexerError<'a> {
     pub column: u64,
 }
 
-pub struct Lexer<'a> {
+pub fn tokenize(source: &str) -> Result<Vec<Token>, Vec<LexerError>> {
+    let mut collected_tokens = vec![];
+    let mut collected_errors = vec![];
+    for token_or_error in Lexer::new(source) {
+        match token_or_error {
+            Err(error) => collected_errors.push(error),
+            Ok(token) if collected_errors.is_empty() => collected_tokens.push(token),
+            _ => {}
+        }
+    }
+
+    if collected_errors.is_empty() {
+        Ok(collected_tokens)
+    } else {
+        Err(collected_errors)
+    }
+}
+
+struct Lexer<'a> {
     remaining_string: &'a str,
     line: u64,
     column: u64,

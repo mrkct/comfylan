@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
 
-use crate::interpreter::{ast::ImmediateValue, environment::Env, typechecking::Type};
+use crate::lang::interpreter::value::InternalValue;
+use crate::lang::{environment::Env, typechecking::Type};
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use super::evaluator::EvaluationError;
@@ -213,8 +214,8 @@ pub struct NativeFunction {
     pub signature: Type,
     pub callback: fn(
         &mut dyn GameEngineSubsystem,
-        Vec<ImmediateValue>,
-    ) -> Result<ImmediateValue, EvaluationError>,
+        Vec<InternalValue>,
+    ) -> Result<InternalValue, EvaluationError>,
 }
 
 impl fmt::Debug for NativeFunction {
@@ -270,34 +271,34 @@ pub struct MouseState {
     pub right_button_down: bool,
 }
 
-pub fn fill_values_env_with_native_functions(env: &Rc<Env<ImmediateValue>>) {
+pub fn fill_values_env_with_native_functions(env: &Rc<Env<InternalValue>>) {
     for (name, native_function) in NATIVE_FUNCTIONS.iter() {
-        env.declare(
-            name,
-            ImmediateValue::NativeFunction(native_function.clone()),
-        );
+        env.declare(name, InternalValue::NativeFunction(native_function.clone()));
     }
 }
 
-pub fn fill_type_env_with_native_functions(env: &Rc<Env<Type>>) {
+pub fn fill_type_env_with_native_functions(env: &Env<Type>) {
     for (name, NativeFunction { signature, .. }) in NATIVE_FUNCTIONS.iter() {
         env.declare(name, signature.clone());
     }
 }
 
-pub fn fill_global_env_with_builtin_constants(env: &Rc<Env<ImmediateValue>>) {
-    fn make_rgb(r: u8, g: u8, b: u8) -> ImmediateValue {
-        ImmediateValue::Struct(Type::TypeReference("Rgb".to_string()), Rc::new(RefCell::new(HashMap::from([
-            ("r".to_string(), ImmediateValue::Integer(r as i64)), 
-            ("g".to_string(), ImmediateValue::Integer(g as i64)), 
-            ("b".to_string(), ImmediateValue::Integer(b as i64)), 
-        ]))))
+pub fn fill_global_env_with_builtin_constants(env: &Rc<Env<InternalValue>>) {
+    fn make_rgb(r: u8, g: u8, b: u8) -> InternalValue {
+        InternalValue::Struct(
+            Type::TypeReference("Rgb".to_string()),
+            Rc::new(RefCell::new(HashMap::from([
+                ("r".to_string(), InternalValue::Integer(r as i64)),
+                ("g".to_string(), InternalValue::Integer(g as i64)),
+                ("b".to_string(), InternalValue::Integer(b as i64)),
+            ]))),
+        )
     }
 
     let builtin_constants = [
-        ("MB_LEFT", ImmediateValue::Integer(0)), 
-        ("MB_MIDDLE", ImmediateValue::Integer(1)),
-        ("MB_RIGHT", ImmediateValue::Integer(2)),
+        ("MB_LEFT", InternalValue::Integer(0)),
+        ("MB_MIDDLE", InternalValue::Integer(1)),
+        ("MB_RIGHT", InternalValue::Integer(2)),
         ("RED", make_rgb(255, 0, 0)),
         ("GREEN", make_rgb(0, 255, 0)),
         ("BLUE", make_rgb(0, 0, 255)),
@@ -320,13 +321,13 @@ pub fn get_default_system_game_engine_subsystem() -> impl GameEngineSubsystem {
     sdl_subsystem::SdlSubsystem::new()
 }
 
-fn print_immediate_value(v: &ImmediateValue) {
+fn print_immediate_value(v: &InternalValue) {
     match v {
-        ImmediateValue::Integer(x) => print!("{}", x),
-        ImmediateValue::FloatingPoint(x) => print!("{}", x),
-        ImmediateValue::String(s) => print!("{}", s),
-        ImmediateValue::Boolean(b) => print!("{}", b),
-        ImmediateValue::Array(_, a) => {
+        InternalValue::Integer(x) => print!("{}", x),
+        InternalValue::FloatingPoint(x) => print!("{}", x),
+        InternalValue::String(s) => print!("{}", s),
+        InternalValue::Boolean(b) => print!("{}", b),
+        InternalValue::Array(_, a) => {
             print!("[");
             let a_borrow = a.borrow();
             let mut iter = a_borrow.iter();
@@ -339,10 +340,10 @@ fn print_immediate_value(v: &ImmediateValue) {
             }
             print!("]");
         }
-        ImmediateValue::Closure(ftype, _, _, _) => print!("[@Closure {:?}]", ftype),
-        ImmediateValue::NativeFunction(function) => print!("[@NativeFunction {:?}]", function),
-        ImmediateValue::Void => print!("[Void]"),
-        ImmediateValue::Struct(_, fields) => {
+        InternalValue::Closure(ftype, _, _, _) => print!("[@Closure {:?}]", ftype),
+        InternalValue::NativeFunction(function) => print!("[@NativeFunction {:?}]", function),
+        InternalValue::Void => print!("[Void]"),
+        InternalValue::Struct(_, fields) => {
             print!("{{");
             let borrow = fields.borrow();
             let mut iter = borrow.iter();
@@ -361,66 +362,66 @@ fn print_immediate_value(v: &ImmediateValue) {
 
 fn native_rect(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     let x = unwrap_expecting_integer(args.get(0));
     let y = unwrap_expecting_integer(args.get(1));
     let w = unwrap_expecting_integer(args.get(2));
     let h = unwrap_expecting_integer(args.get(3));
 
-    Ok(ImmediateValue::Struct(
+    Ok(InternalValue::Struct(
         Type::TypeReference("Rect".to_string()),
         Rc::new(RefCell::new(HashMap::from([
-            ("x".to_string(), ImmediateValue::Integer(x)),
-            ("y".to_string(), ImmediateValue::Integer(y)),
-            ("w".to_string(), ImmediateValue::Integer(w)),
-            ("h".to_string(), ImmediateValue::Integer(h)),
+            ("x".to_string(), InternalValue::Integer(x)),
+            ("y".to_string(), InternalValue::Integer(y)),
+            ("w".to_string(), InternalValue::Integer(w)),
+            ("h".to_string(), InternalValue::Integer(h)),
         ]))),
     ))
 }
 
 fn native_rgb(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     let r = unwrap_expecting_integer(args.get(0));
     let g = unwrap_expecting_integer(args.get(1));
     let b = unwrap_expecting_integer(args.get(2));
 
-    Ok(ImmediateValue::Struct(
+    Ok(InternalValue::Struct(
         Type::TypeReference("Rgb".to_string()),
         Rc::new(RefCell::new(HashMap::from([
-            ("r".to_string(), ImmediateValue::Integer(r)),
-            ("g".to_string(), ImmediateValue::Integer(g)),
-            ("b".to_string(), ImmediateValue::Integer(b)),
+            ("r".to_string(), InternalValue::Integer(r)),
+            ("g".to_string(), InternalValue::Integer(g)),
+            ("b".to_string(), InternalValue::Integer(b)),
         ]))),
     ))
 }
 
 fn native_print(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     for arg in args {
         print_immediate_value(&arg);
     }
-    Ok(ImmediateValue::Void)
+    Ok(InternalValue::Void)
 }
 
 fn native_array_len(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     match args.get(0) {
-        Some(ImmediateValue::Array(_, array)) => {
-            Ok(ImmediateValue::Integer(array.borrow().len() as i64))
+        Some(InternalValue::Array(_, array)) => {
+            Ok(InternalValue::Integer(array.borrow().len() as i64))
         },
         _ => panic!("Typechecker failed! Native function 'len' was called with an argument that is not an array")
     }
 }
 
 fn validate_array_index(
-    array: &Rc<RefCell<Vec<ImmediateValue>>>,
+    array: &Rc<RefCell<Vec<InternalValue>>>,
     index: i64,
 ) -> Result<usize, EvaluationError> {
     let array_len = array.borrow().len();
@@ -439,24 +440,24 @@ fn validate_array_index(
 
 fn native_array_insert(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     match (args.get(0), args.get(1), args.get(2)) {
-        (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(index)), Some(v)) => {
+        (Some(InternalValue::Array(_, array)), Some(InternalValue::Integer(index)), Some(v)) => {
             let i = validate_array_index(array, *index)?;
             array.borrow_mut().insert(i, v.clone())
         }
         _ => panic!("Typechecker failed! Native function 'insert' was called with bad arguments"),
     }
-    Ok(ImmediateValue::Void)
+    Ok(InternalValue::Void)
 }
 
 fn native_array_remove(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     match (args.get(0), args.get(1)) {
-        (Some(ImmediateValue::Array(_, array)), Some(ImmediateValue::Integer(index))) => {
+        (Some(InternalValue::Array(_, array)), Some(InternalValue::Integer(index))) => {
             let i = validate_array_index(array, *index)?;
             Ok(array.borrow_mut().remove(i))
         }
@@ -466,13 +467,13 @@ fn native_array_remove(
 
 fn native_random(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     match (args.get(0), args.get(1)) {
-        (Some(ImmediateValue::Integer(x1)), Some(ImmediateValue::Integer(x2))) => {
+        (Some(InternalValue::Integer(x1)), Some(InternalValue::Integer(x2))) => {
             let low = *x1.min(x2);
             let high = *x1.max(x2);
-            Ok(ImmediateValue::Integer(
+            Ok(InternalValue::Integer(
                 rand::thread_rng().gen_range(low..=high),
             ))
         }
@@ -482,10 +483,10 @@ fn native_random(
 
 fn native_delay(
     _: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     match args.get(0) {
-        Some(ImmediateValue::Integer(ms)) => {
+        Some(InternalValue::Integer(ms)) => {
             let ms = *ms;
             if ms < 0 {
                 Err(EvaluationError::NativeSpecific(format!(
@@ -494,7 +495,7 @@ fn native_delay(
                 )))
             } else {
                 std::thread::sleep(std::time::Duration::from_millis(ms.try_into().unwrap()));
-                Ok(ImmediateValue::Void)
+                Ok(InternalValue::Void)
             }
         }
         _ => panic!("typechecker failed?"),
@@ -503,27 +504,27 @@ fn native_delay(
 
 fn native_exit(
     _: &mut dyn GameEngineSubsystem,
-    _: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    _: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     std::process::exit(0);
 }
 
 fn native_open_window(
     subsystem: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     match (args.get(0), args.get(1), args.get(2)) {
         (
-            Some(ImmediateValue::Integer(w)),
-            Some(ImmediateValue::Integer(h)),
-            Some(ImmediateValue::String(title)),
+            Some(InternalValue::Integer(w)),
+            Some(InternalValue::Integer(h)),
+            Some(InternalValue::String(title)),
         ) => {
             let w: u32 = (*w).try_into().unwrap();
             let h: u32 = (*h).try_into().unwrap();
 
             subsystem
                 .open_window(w, h, title)
-                .map(|_| ImmediateValue::Void)
+                .map(|_| InternalValue::Void)
                 .map_err(EvaluationError::NativeSpecific)
         }
         _ => panic!("typechecker failed?"),
@@ -532,42 +533,42 @@ fn native_open_window(
 
 fn native_refresh_screen(
     subsystem: &mut dyn GameEngineSubsystem,
-    _: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    _: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     subsystem
         .refresh_screen()
-        .map(|_| ImmediateValue::Void)
+        .map(|_| InternalValue::Void)
         .map_err(EvaluationError::NativeSpecific)
 }
 
 fn unwrap_expecting_struct(
-    x: Option<&ImmediateValue>,
-) -> &Rc<RefCell<HashMap<String, ImmediateValue>>> {
+    x: Option<&InternalValue>,
+) -> &Rc<RefCell<HashMap<String, InternalValue>>> {
     match x {
-        Some(ImmediateValue::Struct(_, r)) => r,
-        _ => panic!("Expected to unwrap an ImmediateValue::Struct"),
+        Some(InternalValue::Struct(_, r)) => r,
+        _ => panic!("Expected to unwrap an InternalValue::Struct"),
     }
 }
 
-fn unwrap_expecting_bool(x: Option<&ImmediateValue>) -> bool {
+fn unwrap_expecting_bool(x: Option<&InternalValue>) -> bool {
     match x {
-        Some(ImmediateValue::Boolean(b)) => *b,
-        _ => panic!("Expected to unwrap an ImmediateValue::Boolean"),
+        Some(InternalValue::Boolean(b)) => *b,
+        _ => panic!("Expected to unwrap an InternalValue::Boolean"),
     }
 }
 
-fn unwrap_expecting_integer(x: Option<&ImmediateValue>) -> i64 {
+fn unwrap_expecting_integer(x: Option<&InternalValue>) -> i64 {
     match x {
-        Some(ImmediateValue::Integer(i)) => *i,
+        Some(InternalValue::Integer(i)) => *i,
         t => panic!(
-            "Expected to unwrap an ImmediateValue::Integer, got {:?} instead",
+            "Expected to unwrap an InternalValue::Integer, got {:?} instead",
             t
         ),
     }
 }
 
 fn unwrap_expecting_rect(
-    rect: Option<&ImmediateValue>,
+    rect: Option<&InternalValue>,
 ) -> Result<(i32, i32, u32, u32), EvaluationError> {
     let rect = unwrap_expecting_struct(rect);
     let borrow = rect.borrow();
@@ -594,7 +595,7 @@ fn unwrap_expecting_rect(
     Ok((x, y, w, h))
 }
 
-fn unwrap_expecting_rgb(rgb: Option<&ImmediateValue>) -> Result<(u8, u8, u8), EvaluationError> {
+fn unwrap_expecting_rgb(rgb: Option<&InternalValue>) -> Result<(u8, u8, u8), EvaluationError> {
     let rgb = unwrap_expecting_struct(rgb);
     let borrow = rgb.borrow();
     let r: u8 = unwrap_expecting_integer(borrow.get("r"))
@@ -617,35 +618,35 @@ fn unwrap_expecting_rgb(rgb: Option<&ImmediateValue>) -> Result<(u8, u8, u8), Ev
 
 fn native_draw_rectangle(
     subsystem: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     let (x, y, w, h) = unwrap_expecting_rect(args.get(0))?;
     let (r, g, b) = unwrap_expecting_rgb(args.get(1))?;
     let fill = unwrap_expecting_bool(args.get(2));
 
     subsystem
         .draw_rectangle(x, y, w, h, r, g, b, fill)
-        .map(|_| ImmediateValue::Void)
+        .map(|_| InternalValue::Void)
         .map_err(EvaluationError::NativeSpecific)
 }
 
 fn native_mouse_x(
     subsystem: &mut dyn GameEngineSubsystem,
-    _: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    _: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     subsystem
         .mouse_state()
-        .map(|state| ImmediateValue::Integer(state.x))
+        .map(|state| InternalValue::Integer(state.x))
         .map_err(EvaluationError::NativeSpecific)
 }
 
 fn native_mouse_y(
     subsystem: &mut dyn GameEngineSubsystem,
-    _: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    _: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     subsystem
         .mouse_state()
-        .map(|state| ImmediateValue::Integer(state.y))
+        .map(|state| InternalValue::Integer(state.y))
         .map_err(EvaluationError::NativeSpecific)
 }
 
@@ -668,17 +669,17 @@ fn get_mouse_button_status(
 
 fn native_mouse_btn_down(
     subsystem: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     let btn = unwrap_expecting_integer(args.get(0));
 
-    get_mouse_button_status(subsystem, btn).map(ImmediateValue::Boolean)
+    get_mouse_button_status(subsystem, btn).map(InternalValue::Boolean)
 }
 
 fn native_draw_line(
     subsystem: &mut dyn GameEngineSubsystem,
-    args: Vec<ImmediateValue>,
-) -> Result<ImmediateValue, EvaluationError> {
+    args: Vec<InternalValue>,
+) -> Result<InternalValue, EvaluationError> {
     let x1 = unwrap_expecting_integer(args.get(0)) as i32;
     let y1 = unwrap_expecting_integer(args.get(1)) as i32;
     let x2 = unwrap_expecting_integer(args.get(2)) as i32;
@@ -687,7 +688,7 @@ fn native_draw_line(
 
     subsystem
         .draw_line(x1, y1, x2, y2, r, g, b)
-        .map(|_| ImmediateValue::Void)
+        .map(|_| InternalValue::Void)
         .map_err(EvaluationError::NativeSpecific)
 }
 
@@ -718,7 +719,7 @@ mod sdl_subsystem {
     }
 
     struct InputStatus {
-        pub keycodes: RwLock<HashMap<Keycode, bool>>,
+        pub _keycodes: RwLock<HashMap<Keycode, bool>>,
         pub mouse: RwLock<MouseState>,
     }
 
@@ -774,7 +775,7 @@ mod sdl_subsystem {
             let (sdl_tx, interpreter_rx) = mpsc::channel();
 
             let input = Arc::new(InputStatus {
-                keycodes: RwLock::new(HashMap::new()),
+                _keycodes: RwLock::new(HashMap::new()),
                 mouse: RwLock::new(MouseState {
                     x: 0,
                     y: 0,
